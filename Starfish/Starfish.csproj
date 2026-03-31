@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <PublishAot>true</PublishAot>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <StripSymbols>true</StripSymbols>
+        <TrimMode>full</TrimMode>
+        <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+        <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+        <OptimizationPreference>Speed</OptimizationPreference>
+    </PropertyGroup>
+    <PropertyGroup>
+        <Version>0.0.1</Version>
+        <AssemblyName>starfish-ui</AssemblyName>
+        <AssemblyVersion>0.0.1</AssemblyVersion>
+        <AssemblyTitle>Starfish GTK UI</AssemblyTitle>
+        <Description>Starfish is an arch linux package dependency viewer</Description>
+        <Company>Seafoam Labs</Company>
+        <Copyright>2026 Seafoam Labs</Copyright>
+    </PropertyGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="UiFiles\**\*.ui" />
+    </ItemGroup>
+    <ItemGroup>
+      <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.0-preview.1" />
+      <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.2.26159.112" />
+    </ItemGroup>
+
+</Project>
