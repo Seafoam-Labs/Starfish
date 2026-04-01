@@ -31,7 +31,7 @@ public partial class GskGraphWidget : DrawingArea
     private void Setup()
     {
         SetDrawFunc(DrawInternal);
-      
+
         _tickId = AddTickCallback((_, _) =>
         {
             if (!_isSimulating) return true;
@@ -66,6 +66,7 @@ public partial class GskGraphWidget : DrawingArea
         {
             _foregroundNodes.Clear();
         }
+
         QueueDraw();
     }
 
@@ -76,7 +77,7 @@ public partial class GskGraphWidget : DrawingArea
             _rootPackage = rootPackage;
             _dependencyMap = dependencyMap;
             CalculateInitialLayout();
-            
+
             //150 seems to be a good number for good looking graphs. While not taking too long.
             RunSimulationStepForceAtlas2(150);
             _isSimulating = false;
@@ -139,7 +140,7 @@ public partial class GskGraphWidget : DrawingArea
 
         _positions.Clear();
         _velocities.Clear();
-        
+
         var leafCounts = new Dictionary<string, int>();
         CalculateLeafCounts(_rootPackage, childrenMap, leafCounts);
 
@@ -218,7 +219,7 @@ public partial class GskGraphWidget : DrawingArea
             }
         }
     }
-    
+
     private bool RunSimulationStepForceAtlas2(int iterations)
     {
         if (_positions.Count == 0) return false;
@@ -231,7 +232,7 @@ public partial class GskGraphWidget : DrawingArea
         const float maxForce = 50f;
         var random = new Random();
 
-      
+
         var nodes = _positions.Keys.ToList();
         var nodeToIndex = new Dictionary<string, int>();
         for (var i = 0; i < nodes.Count; i++) nodeToIndex[nodes[i]] = i;
@@ -274,7 +275,7 @@ public partial class GskGraphWidget : DrawingArea
 
         // 4. Pre-calculate foreground indices
         var isForeground = new bool[nodes.Count];
-        var  hasForeground = _foregroundNodes.Count > 0;
+        var hasForeground = _foregroundNodes.Count > 0;
         foreach (var fgNode in _foregroundNodes)
         {
             if (nodeToIndex.TryGetValue(fgNode, out var idx)) isForeground[idx] = true;
@@ -414,13 +415,12 @@ public partial class GskGraphWidget : DrawingArea
                 px[i] = p.X;
                 py[i] = p.Y;
             }
-
-            // Draw background edges
-            if (_foregroundNodes.Count > 0)
-                cr.SetSourceRgb(0.2, 0.2, 0.2); // Dimmer edges if something is selected
-            else
-                cr.SetSourceRgb(0.5, 0.5, 0.5);
             
+            if (_foregroundNodes.Count > 0)
+                cr.SetSourceRgba(.4, 4, 4, _foregroundNodes.Count > 0 ? 0.06 : 0.18);
+            else
+                cr.SetSourceRgba(.4, .4, 0.4, 0.9);
+
             cr.LineWidth = 1.0 / _zoom;
 
             foreach (var (package, deps) in _dependencyMap)
@@ -433,14 +433,11 @@ public partial class GskGraphWidget : DrawingArea
                     if (!nodeToIndex.TryGetValue(dep, out var v)) continue;
                     if (isUForeground || _foregroundNodes.Contains(dep)) continue;
 
-                    cr.MoveTo(px[u], py[u]);
-                    cr.LineTo(px[v], py[v]);
-                    cr.Stroke();
+                    DrawEdgeCurve(cr, px[u], py[u], px[v], py[v], 60 / 2f);
                 }
             }
-
-            // Draw foreground edges
-            cr.SetSourceRgb(1.0, 1.0, 0.0);
+            
+            cr.SetSourceRgb(.6, .6, 0.6);
             cr.LineWidth = 2.5 / _zoom;
 
             foreach (var (package, deps) in _dependencyMap)
@@ -452,12 +449,35 @@ public partial class GskGraphWidget : DrawingArea
                 {
                     if (!nodeToIndex.TryGetValue(dep, out var v)) continue;
                     if (!isUForeground && !_foregroundNodes.Contains(dep)) continue;
-                    cr.MoveTo(px[u], py[u]);
-                    cr.LineTo(px[v], py[v]);
-                    cr.Stroke();
+
+                    DrawEdgeCurve(cr, px[u], py[u], px[v], py[v], 60 / 2f);
                 }
             }
         }
+    }
+
+    private static void DrawEdgeCurve(Context cr, float x1, float y1, float x2, float y2, float nodeRadius)
+    {
+        var dx = x2 - x1;
+        var dy = y2 - y1;
+        var dist = (float)Math.Sqrt(dx * dx + dy * dy);
+        if (dist < 0.001f) return;
+
+        var nx = dx / dist;
+        var ny = dy / dist;
+
+        var sx = x1 + nx * nodeRadius;
+        var sy = y1 + ny * nodeRadius;
+        var ex = x2 - nx * nodeRadius;
+        var ey = y2 - ny * nodeRadius;
+
+        var cx = (sx + ex) / 2f + (ey - sy) * 0.15f;
+        var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
+
+        cr.NewPath();
+        cr.MoveTo(sx, sy);
+        cr.CurveTo(cx, cy, cx, cy, ex, ey);
+        cr.Stroke();
     }
 
     private void DrawNodes(Context cr)
@@ -492,6 +512,7 @@ public partial class GskGraphWidget : DrawingArea
                 {
                     foreach (var dep in deps) highlightedNodes.Add(dep);
                 }
+
                 // Dependants (parents)
                 foreach (var (parent, children) in _dependencyMap)
                 {
@@ -505,12 +526,11 @@ public partial class GskGraphWidget : DrawingArea
                 if (highlightedNodes.Contains(name)) continue;
                 var level = _levels.GetValueOrDefault(name, 0);
                 var color = levelColors[Math.Min(level, levelColors.Length - 1)];
-                
-                // Dim only when a node is selected
-                var drawColor = shouldDim 
-                    ? (color.R * 0.3, color.G * 0.3, color.B * 0.3) 
+
+                var drawColor = shouldDim
+                    ? (color.R * 0.3, color.G * 0.3, color.B * 0.3)
                     : color;
-                
+
                 DrawNode(cr, name, pos, nodeSize, drawColor, false, false, shouldDim);
             }
 
@@ -528,41 +548,66 @@ public partial class GskGraphWidget : DrawingArea
     private void DrawNode(Context cr, string name, Point pos, float nodeSize, (double R, double G, double B) color,
         bool isHighlighted, bool isSelected, bool isDimmed)
     {
-        var half = nodeSize / 2;
-        cr.SetSourceRgb(color.R, color.G, color.B);
-        cr.Rectangle(pos.X - half, pos.Y - half, nodeSize, nodeSize);
-        cr.FillPreserve();
+        var r = nodeSize / 2;
+
+        if (isSelected || isHighlighted)
+        {
+            var glowColor = isSelected ? (1.0, 1.0, 0.4) : (color.R, color.G, color.B);
+
+            cr.NewPath();
+            cr.Arc(pos.X, pos.Y, r * 2.0, 0, 2 * Math.PI);
+            cr.SetSourceRgba(glowColor.Item1, glowColor.Item2, glowColor.Item3, 0.08);
+            cr.Fill();
+
+            cr.NewPath();
+            cr.Arc(pos.X, pos.Y, r * 1.45, 0, 2 * Math.PI);
+            cr.SetSourceRgba(glowColor.Item1, glowColor.Item2, glowColor.Item3, 0.18);
+            cr.Fill();
+        }
+        
+        cr.NewPath();
+        cr.Arc(pos.X, pos.Y, r, 0, 2 * Math.PI);
+
+        if (isDimmed)
+            cr.SetSourceRgb(0.18, 0.18, 0.18);
+        else
+            cr.SetSourceRgb(color.R, color.G, color.B);
+
+        cr.Fill();
+        
+        cr.NewPath();
+        cr.Arc(pos.X, pos.Y, r, 0, 2 * Math.PI);
 
         if (isSelected)
         {
-            cr.SetSourceRgb(1, 1, 0);
-            cr.LineWidth = 3.0 / _zoom;
+            cr.SetSourceRgba(1, 1, 0.4, 1);
+            cr.LineWidth = 2.5 / _zoom;
+            cr.Stroke();
+            
+            cr.NewPath();
+            cr.Arc(pos.X, pos.Y, r * 1.6, 0, 2 * Math.PI);
+            cr.SetSourceRgba(1, 1, 0.4, 0.2);
+            cr.Fill();
         }
         else if (isHighlighted)
         {
-            cr.SetSourceRgb(1, 0.5, 0); 
+            cr.SetSourceRgba(1, 0.6, 0.1, 0.9);
             cr.LineWidth = 2.0 / _zoom;
+            cr.Stroke();
         }
         else
         {
-            if (isDimmed)
-                cr.SetSourceRgb(0.3, 0.3, 0.3);
-            else
-                cr.SetSourceRgb(1, 1, 1); 
-
+            cr.SetSourceRgba(1, 1, 1, isDimmed ? 0.06 : 0.2);
             cr.LineWidth = 1.0 / _zoom;
+            cr.Stroke();
         }
-        cr.Stroke();
         
-        if (isDimmed)
-            cr.SetSourceRgb(0.5, 0.5, 0.5);
-        else
-            cr.SetSourceRgb(1, 1, 1);
-
+        cr.NewPath();
+        cr.SetSourceRgba(1, 1, 1, isDimmed ? 0.25 : 0.85);
         cr.SetFontSize(10 / _zoom);
         cr.SelectFontFace("Sans", FontSlant.Normal, FontWeight.Bold);
         cr.TextExtents(name, out var te);
-        cr.MoveTo(pos.X - te.Width / 2, pos.Y + half + te.Height + 5 / _zoom);
+        cr.MoveTo(pos.X - te.Width / 2, pos.Y + r + te.Height + 5 / _zoom);
         cr.ShowText(name);
     }
 
