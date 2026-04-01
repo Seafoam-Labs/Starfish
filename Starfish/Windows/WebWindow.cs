@@ -1,3 +1,4 @@
+using GLib;
 using Cairo;
 using Gtk;
 using Starfish.Helpers;
@@ -11,6 +12,7 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
     private Dictionary<string, List<string>> _dependencyMap = new();
     private Box _box = null!;
     private SpinButton _depthSpinner = null!;
+    private Entry _searchEntry = null!;
     private readonly GskGraphWidget _graphWidget = new();
 
     private double _zoom = 1.0;
@@ -21,9 +23,17 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
     private bool _showInverse;
     private bool _installOnly = true;
 
+    private string? _hoverCandidate;
+    private uint _hoverTimeoutId;
+
     public async Task InitializeAsync(string rootPackage, int depth)
     {
         _rootPackage = rootPackage;
+        if (_searchEntry != null && _searchEntry.GetText() != rootPackage)
+        {
+            _searchEntry.SetText(rootPackage);
+        }
+
         if (_showInverse)
         {
             _dependencyMap = _installOnly 
@@ -45,6 +55,16 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
             ResourceHelper.LoadUiFile("UiFiles/WebWindow.ui"), -1);
 
         _box = (Box)builder.GetObject("WebWindow")!;
+        
+        _searchEntry = (Entry)builder.GetObject("search_entry")!;
+        _searchEntry.OnActivate += (sender, args) => {
+            var pkg = _searchEntry.GetText();
+            if (!string.IsNullOrWhiteSpace(pkg))
+            {
+                _ = InitializeAsync(pkg, (int)_depthSpinner.GetValue());
+            }
+        };
+
         _depthSpinner = (SpinButton)builder.GetObject("depth_spin")!;
         _depthSpinner.OnValueChanged += (sender, args) => {
             _ = InitializeAsync(_rootPackage, (int)sender.GetValue());
@@ -96,9 +116,27 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         {
             _box.Remove(oldCanvas);
         }
+        
+// with this:
         _graphWidget.SetHexpand(true);
         _graphWidget.SetVexpand(true);
-        _box.Append(_graphWidget);
+
+        var labelOverlay = DrawingArea.New();
+        labelOverlay.CanTarget = false;
+        labelOverlay.SetDrawFunc((area, cr, w, h) =>
+        {
+            _graphWidget.DrawLabels(cr, w, h);
+        });
+
+        var overlay = Overlay.New();
+        overlay.SetHexpand(true);
+        overlay.SetVexpand(true);
+        overlay.SetChild(_graphWidget);
+        overlay.AddOverlay(labelOverlay);
+
+        _graphWidget.SetLabelOverlay(labelOverlay);
+
+        _box.Append(overlay);
 
         var scroll = EventControllerScroll.New(EventControllerScrollFlags.Vertical);
         scroll.OnScroll += OnScroll;
@@ -114,14 +152,69 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         click.Button = 1;
         click.OnPressed += OnClick;
         _graphWidget.AddController(click);
+
+        var motion = EventControllerMotion.New();
+        motion.OnMotion += OnMotion;
+        motion.OnLeave += OnLeave;
+        _graphWidget.AddController(motion);
         
         return _box;
+    }
+
+    private void OnMotion(EventControllerMotion sender, EventControllerMotion.MotionSignalArgs args)
+    {
+        var name = _graphWidget.GetPackageAt(args.X, args.Y);
+        if (name == _graphWidget.GetHoverNode())
+        {
+            if (_hoverTimeoutId != 0)
+            {
+                GLib.Functions.SourceRemove(_hoverTimeoutId);
+                _hoverTimeoutId = 0;
+            }
+
+            _hoverCandidate = name;
+            return;
+        }
+
+        if (name == _hoverCandidate) return;
+
+        if (_hoverTimeoutId != 0)
+        {
+            GLib.Functions.SourceRemove(_hoverTimeoutId);
+            _hoverTimeoutId = 0;
+        }
+
+        _hoverCandidate = name;
+        if (name == null)
+        {
+            _graphWidget.SetHoverNode(null);
+        }
+        else
+        {
+            _hoverTimeoutId = GLib.Functions.TimeoutAdd(0, 200, () =>
+            {
+                _graphWidget.SetHoverNode(_hoverCandidate);
+                _hoverTimeoutId = 0;
+                return false;
+            });
+        }
+    }
+
+    private void OnLeave(EventControllerMotion sender, EventArgs args)
+    {
+        if (_hoverTimeoutId != 0)
+        {
+            GLib.Functions.SourceRemove(_hoverTimeoutId);
+            _hoverTimeoutId = 0;
+        }
+        _hoverCandidate = null;
+        _graphWidget.SetHoverNode(null);
     }
 
     private bool OnScroll(EventControllerScroll sender,
         EventControllerScroll.ScrollSignalArgs args)
     {
-        _zoom = Math.Clamp(_zoom * (args.Dy > 0 ? 0.9 : 1.1), 0.2, 5.0);
+        _zoom = Math.Clamp(_zoom * (args.Dy > 0 ? 0.9 : 1.1), 0.05, 5.0);
         _graphWidget.SetTransform(_zoom, _panX, _panY);
         return true;
     }
@@ -151,13 +244,14 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         var name = _graphWidget.GetPackageAt(args.X, args.Y);
         if (name == null)
         {
-            _graphWidget.ClearSelection();
+         
             return;
         }
-        _graphWidget.ToggleForeground(name);
+     
         OnNodeClicked(name);
     }
-
+    
+    
     private static void OnNodeClicked(string packageName)
     {
         Console.WriteLine($"Clicked: {packageName}");

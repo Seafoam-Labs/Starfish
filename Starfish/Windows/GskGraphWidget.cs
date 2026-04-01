@@ -1,10 +1,13 @@
 using Gtk;
 using Cairo;
 using Graphene;
+using Silk.NET.OpenGL;
+using Starfish.Constants;
+using Starfish.References;
 
 namespace Starfish.Windows;
 
-public partial class GskGraphWidget : DrawingArea
+public class GskGraphWidget : GLArea
 {
     private string _rootPackage = string.Empty;
     private Dictionary<string, List<string>> _dependencyMap = new();
@@ -12,52 +15,493 @@ public partial class GskGraphWidget : DrawingArea
     private readonly Dictionary<string, Point> _velocities = new();
     private Dictionary<string, int> _levels = new();
     private readonly HashSet<string> _foregroundNodes = [];
+    private string? _hoverNode;
     private readonly Lock _lock = new();
 
     private double _zoom = 1.0;
     private double _panX, _panY;
 
-    private uint _tickId;
-    private bool _isSimulating;
+    private GL? _gl;
+    private uint _nodeVao, _nodeVbo, _instanceVbo;
+    private uint _edgeVao, _edgeVbo;
+    private uint _nodeShader, _edgeShader;
+    private DrawingArea? _labelOverlay;
 
-#pragma warning disable GirCore1007
-    //Looks like issue on github about this 
+    private readonly Dictionary<string, float> _nodeScales = new();
+
     public GskGraphWidget()
     {
-        Setup();
-    }
-#pragma warning restore GirCore1007
-
-    private void Setup()
-    {
-        SetDrawFunc(DrawInternal);
-
-        _tickId = AddTickCallback((_, _) =>
-        {
-            if (!_isSimulating) return true;
-            UpdateSimulation();
-            QueueDraw();
-
-            return true;
-        });
+        SetRequiredVersion(3, 0);
+        HasDepthBuffer = false;
+        OnRealize += OnRealize_Handler;
+        OnUnrealize += OnUnrealize_Handler;
+        OnRender += OnRender_Handler;
     }
 
-    public void ToggleForeground(string packageName)
+    private void OnRealize_Handler(Widget sender, EventArgs e)
     {
+        MakeCurrent();
+        _gl = GlLoader.GetGl();
+
+        _gl.Enable(EnableCap.Multisample);
+        _gl.Enable(EnableCap.LineSmooth);
+        _gl.Hint(HintTarget.LineSmoothHint, HintMode.Nicest);
+
+        SetupShaders();
+        SetupBuffers();
+    }
+
+    private bool OnRender_Handler(GLArea sender, RenderSignalArgs args)
+    {
+        if (_gl is null) return false;
+
+        var w = GetAllocatedWidth();
+        var h = GetAllocatedHeight();
+
+        _gl.Viewport(0, 0, (uint)w, (uint)h);
+        _gl.ClearColor(0.15f, 0.15f, 0.15f, 1f);
+        _gl.Clear(ClearBufferMask.ColorBufferBit);
+
+        AnimateScales();
+        DrawEdgesGl(w, h);
+        DrawNodesGl(w, h);
+
+        if (!ScalesAreAnimating()) return true;
+        QueueDraw();
+        _labelOverlay?.QueueDraw();
+
+        return true;
+    }
+
+    private void OnUnrealize_Handler(Widget sender, EventArgs e)
+    {
+        MakeCurrent();
+        if (_gl == null) return;
+        _gl.DeleteVertexArray(_nodeVao);
+        _gl.DeleteVertexArray(_edgeVao);
+        _gl.DeleteBuffer(_nodeVbo);
+        _gl.DeleteBuffer(_instanceVbo);
+        _gl.DeleteBuffer(_edgeVbo);
+        _gl.DeleteProgram(_nodeShader);
+        _gl.DeleteProgram(_edgeShader);
+    }
+
+    public void SetLabelOverlay(DrawingArea overlay)
+    {
+        _labelOverlay = overlay;
+    }
+
+
+    private void SetupShaders()
+    {
+        _nodeShader = CreateShaderProgram(ShaderConstants.NodeVert, ShaderConstants.NodeFrag);
+        _edgeShader = CreateShaderProgram(ShaderConstants.EdgeVert, ShaderConstants.EdgeFrag);
+    }
+
+    private uint CreateShaderProgram(string vertSrc, string fragSrc)
+    {
+        var gl = _gl!;
+
+        var vert = gl.CreateShader(ShaderType.VertexShader);
+        gl.ShaderSource(vert, vertSrc);
+        gl.CompileShader(vert);
+        gl.GetShader(vert, ShaderParameterName.CompileStatus, out var vOk);
+        if (vOk == 0) Console.WriteLine($"Vert error: {gl.GetShaderInfoLog(vert)}");
+
+        var frag = gl.CreateShader(ShaderType.FragmentShader);
+        gl.ShaderSource(frag, fragSrc);
+        gl.CompileShader(frag);
+        gl.GetShader(frag, ShaderParameterName.CompileStatus, out var fOk);
+        if (fOk == 0) Console.WriteLine($"Frag error: {gl.GetShaderInfoLog(frag)}");
+
+        var prog = gl.CreateProgram();
+        gl.AttachShader(prog, vert);
+        gl.AttachShader(prog, frag);
+        gl.LinkProgram(prog);
+        gl.GetProgram(prog, ProgramPropertyARB.LinkStatus, out var lOk);
+        if (lOk == 0) Console.WriteLine($"Link error: {gl.GetProgramInfoLog(prog)}");
+
+        gl.DeleteShader(vert);
+        gl.DeleteShader(frag);
+
+        return prog;
+    }
+
+    private unsafe void SetupBuffers()
+    {
+        var gl = _gl!;
+
+        float[] quad =
+        [
+            -1f, -1f,
+            1f, -1f,
+            1f, 1f,
+            -1f, -1f,
+            1f, 1f,
+            -1f, 1f,
+        ];
+
+        _nodeVao = gl.GenVertexArray();
+        gl.BindVertexArray(_nodeVao);
+
+        // Quad vertices (loc 0)
+        _nodeVbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _nodeVbo);
+        fixed (float* p = quad)
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quad.Length * 4),
+                p, BufferUsageARB.StaticDraw);
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 8, (void*)0);
+
+        // Layout per instance: x, y, radius, r, g, b, glow = 7 floats
+        _instanceVbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
+        gl.BufferData(BufferTargetARB.ArrayBuffer, 0, null, BufferUsageARB.DynamicDraw);
+
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 28, (void*)0); // pos
+        gl.VertexAttribDivisor(1, 1);
+
+        gl.EnableVertexAttribArray(2);
+        gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, 28, (void*)8); // radius
+        gl.VertexAttribDivisor(2, 1);
+
+        gl.EnableVertexAttribArray(3);
+        gl.VertexAttribPointer(3, 3, VertexAttribPointerType.Float, false, 28, (void*)12); // color
+        gl.VertexAttribDivisor(3, 1);
+
+        gl.EnableVertexAttribArray(4);
+        gl.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false, 28, (void*)24); // glow
+        gl.VertexAttribDivisor(4, 1);
+
+        gl.BindVertexArray(0);
+
+        // Edge buffer — layout per vertex: x, y, r, g, b, a = 6 floats
+        _edgeVao = gl.GenVertexArray();
+        gl.BindVertexArray(_edgeVao);
+
+        _edgeVbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _edgeVbo);
+        gl.BufferData(BufferTargetARB.ArrayBuffer, 0, null, BufferUsageARB.DynamicDraw);
+
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 24, (void*)0); // pos
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 24, (void*)8); // color
+
+        gl.BindVertexArray(0);
+    }
+
+    private unsafe void DrawEdgesGl(int w, int h)
+    {
+        var gl = _gl!;
+        var proj = BuildProjection(w, h);
+
+        var bgVerts = new List<float>();
+        var fgVerts = new List<float>();
+
         lock (_lock)
         {
-            if (_foregroundNodes.Contains(packageName))
+            var selectedNode = _foregroundNodes.FirstOrDefault();
+            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var hasFg = (selectedNode ?? _hoverNode) != null;
+
+            foreach (var (package, deps) in _dependencyMap)
             {
-                _foregroundNodes.Clear();
-            }
-            else
-            {
-                _foregroundNodes.Clear();
-                _foregroundNodes.Add(packageName);
+                if (!_positions.TryGetValue(package, out var fromPos)) continue;
+                var isNodeHighlighted = highlighted.Contains(package);
+
+                foreach (var dep in deps)
+                {
+                    if (!_positions.TryGetValue(dep, out var toPos)) continue;
+                    var isEdgeHighlighted = isNodeHighlighted && highlighted.Contains(dep);
+
+                    const float r = 1f;
+                    const float g = 1f;
+                    float b, a;
+                    List<float> targetVerts;
+                    if (isEdgeHighlighted)
+                    {
+                        b = 0.9f;
+                        a = 0.4f;
+                        targetVerts = fgVerts;
+                    }
+                    else if (hasFg)
+                    {
+                        b = 1f;
+                        a = 0.06f;
+                        targetVerts = bgVerts;
+                    }
+                    else
+                    {
+                        b = 1f;
+                        a = 0.18f;
+                        targetVerts = bgVerts;
+                    }
+
+                    var fromScale = _nodeScales.GetValueOrDefault(package, 1f);
+                    var toScale = _nodeScales.GetValueOrDefault(dep, 1f);
+                    AddCurvedEdge(targetVerts, fromPos.X, fromPos.Y, toPos.X, toPos.Y, 22f * fromScale, 22f * toScale,
+                        r, g, b, a);
+                }
             }
         }
 
+        var totalCount = bgVerts.Count + fgVerts.Count;
+        if (totalCount == 0) return;
+
+        var arr = new float[totalCount];
+        bgVerts.CopyTo(arr, 0);
+        fgVerts.CopyTo(arr, bgVerts.Count);
+
+        gl.UseProgram(_edgeShader);
+        SetUniformMat4(_edgeShader, "uProjection", proj);
+
+        gl.BindVertexArray(_edgeVao);
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _edgeVbo);
+        fixed (float* p = arr)
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(arr.Length * 4),
+                p, BufferUsageARB.DynamicDraw);
+
+        gl.Enable(EnableCap.Blend);
+        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(arr.Length / 6));
+        gl.BindVertexArray(0);
+    }
+
+    private static void AddCurvedEdge(List<float> verts, float x1, float y1, float x2, float y2, float r1, float r2,
+        float r, float g, float b, float a)
+    {
+        var dx = x2 - x1;
+        var dy = y2 - y1;
+        var dist = (float)Math.Sqrt(dx * dx + dy * dy);
+        if (dist < 0.001f) return;
+
+        var nx = dx / dist;
+        var ny = dy / dist;
+
+        var sx = x1 + nx * r1;
+        var sy = y1 + ny * r1;
+        var ex = x2 - nx * r2;
+        var ey = y2 - ny * r2;
+
+        var cx = (sx + ex) / 2f + (ey - sy) * 0.15f;
+        var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
+
+        const int segments = 32;
+        var prevX = sx;
+        var prevY = sy;
+
+        for (var i = 1; i <= segments; i++)
+        {
+            var t = i / (float)segments;
+            var omt = 1f - t;
+
+            // Quadratic Bezier: (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
+            var tx = omt * omt * sx + 2f * omt * t * cx + t * t * ex;
+            var ty = omt * omt * sy + 2f * omt * t * cy + t * t * ey;
+
+            verts.AddRange([prevX, prevY, r, g, b, a]);
+            verts.AddRange([tx, ty, r, g, b, a]);
+
+            prevX = tx;
+            prevY = ty;
+        }
+    }
+
+    private unsafe void DrawNodesGl(int w, int h)
+    {
+        var gl = _gl!;
+        var proj = BuildProjection(w, h);
+
+        (double R, double G, double B)[] levelColors =
+        [
+            (0.85, 0.35, 0.35), (0.30, 0.55, 0.85),
+            (0.25, 0.75, 0.50), (0.80, 0.60, 0.20),
+            (0.85, 0.35, 0.35), (0.30, 0.55, 0.85),
+            (0.25, 0.75, 0.50), (0.80, 0.60, 0.20),
+        ];
+
+        var instances = new List<float>();
+
+        lock (_lock)
+        {
+            var selectedNode = _foregroundNodes.FirstOrDefault();
+            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var hasFg = (selectedNode ?? _hoverNode) != null;
+
+            foreach (var (name, pos) in _positions)
+            {
+                var level = _levels.GetValueOrDefault(name, 0);
+                var c = levelColors[Math.Min(level, levelColors.Length - 1)];
+
+                var isDimmed = hasFg && !highlighted.Contains(name);
+                var isSelected = name == selectedNode;
+                var isHovered = name == _hoverNode;
+                var isHighlight = highlighted.Contains(name) && !isSelected && !isHovered;
+
+                float r, g, b;
+                if (isDimmed)
+                {
+                    r = 0.18f;
+                    g = 0.18f;
+                    b = 0.18f;
+                }
+                else if (isSelected)
+                {
+                    r = 1f;
+                    g = 1f;
+                    b = 0.4f;
+                }
+                else if (isHovered)
+                {
+                    r = 0.4f;
+                    g = 0.8f;
+                    b = 1f;
+                }
+                else
+                {
+                    r = (float)c.R;
+                    g = (float)c.G;
+                    b = (float)c.B;
+                }
+
+                var glow = isSelected ? 1f : isHovered ? 0.8f : isHighlight ? 0.6f : isDimmed ? 0f : 0.25f;
+                var scale = _nodeScales.GetValueOrDefault(name, 1f);
+                var radius = 22f * scale;
+
+                // x, y, radius, r, g, b, glow
+                instances.AddRange([pos.X, pos.Y, radius, r, g, b, glow]);
+            }
+        }
+
+        if (instances.Count == 0) return;
+
+        var arr = instances.ToArray();
+        var count = (uint)(arr.Length / 7);
+
+        gl.UseProgram(_nodeShader);
+        SetUniformMat4(_nodeShader, "uProjection", proj);
+
+        gl.BindVertexArray(_nodeVao);
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
+        fixed (float* p = arr)
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(arr.Length * 4),
+                p, BufferUsageARB.DynamicDraw);
+
+        gl.Enable(EnableCap.Blend);
+
+        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
+        gl.DrawArraysInstanced(PrimitiveType.Triangles, 0, 6, count);
+
+
+        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        gl.DrawArraysInstanced(PrimitiveType.Triangles, 0, 6, count);
+
+        gl.BindVertexArray(0);
+    }
+
+    private System.Numerics.Matrix4x4 BuildProjection(int w, int h)
+    {
+        var left = (float)(-w / 2.0 / _zoom - _panX / _zoom);
+        var right = (float)(w / 2.0 / _zoom - _panX / _zoom);
+        var bottom = (float)(h / 2.0 / _zoom - _panY / _zoom);
+        var top = (float)(-h / 2.0 / _zoom - _panY / _zoom);
+
+        return System.Numerics.Matrix4x4.CreateOrthographicOffCenter(
+            left, right, bottom, top, -1f, 1f);
+    }
+
+    private unsafe void SetUniformMat4(uint prog, string name, System.Numerics.Matrix4x4 mat)
+    {
+        var loc = _gl!.GetUniformLocation(prog, name);
+        var m = mat;
+        _gl.UniformMatrix4(loc, 1, false, (float*)&m);
+    }
+
+    private HashSet<string> BuildHighlighted(string? selectedNode, string? hoverNode)
+    {
+        HashSet<string> highlighted = [];
+        if (selectedNode == null && hoverNode == null) return highlighted;
+
+        if (selectedNode != null)
+        {
+            highlighted.Add(selectedNode);
+            if (_dependencyMap.TryGetValue(selectedNode, out var deps))
+                foreach (var d in deps)
+                    highlighted.Add(d);
+            foreach (var (parent, children) in _dependencyMap)
+                if (children.Contains(selectedNode))
+                    highlighted.Add(parent);
+        }
+
+        if (hoverNode != null)
+        {
+            highlighted.Add(hoverNode);
+            if (_dependencyMap.TryGetValue(hoverNode, out var hDeps))
+                foreach (var d in hDeps)
+                    highlighted.Add(d);
+            foreach (var (parent, children) in _dependencyMap)
+                if (children.Contains(hoverNode))
+                    highlighted.Add(parent);
+        }
+
+        return highlighted;
+    }
+
+    private static float GetTargetScale(string name, string? selectedNode, HashSet<string> highlighted)
+    {
+        if (selectedNode == null) return 1f;
+        return highlighted.Contains(name) ? 1f : 0.4f;
+    }
+
+    private void AnimateScales()
+    {
+        lock (_lock)
+        {
+            var selectedNode = _foregroundNodes.FirstOrDefault();
+            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            const float speed = 0.12f;
+
+            foreach (var name in _positions.Keys)
+            {
+                var target = GetTargetScale(name, selectedNode ?? _hoverNode, highlighted);
+                var current = _nodeScales.GetValueOrDefault(name, 1f);
+                _nodeScales[name] = current + (target - current) * speed;
+            }
+        }
+    }
+
+    private bool ScalesAreAnimating()
+    {
+        lock (_lock)
+        {
+            var selectedNode = _foregroundNodes.FirstOrDefault();
+            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+
+            return (from name in _positions.Keys
+                let current = _nodeScales.GetValueOrDefault(name, 1f)
+                let target = GetTargetScale(name, selectedNode ?? _hoverNode, highlighted)
+                where Math.Abs(current - target) > 0.005f
+                select current).Any();
+        }
+    }
+
+    public string? GetHoverNode()
+    {
+        lock (_lock) return _hoverNode;
+    }
+
+    public void SetHoverNode(string? packageName)
+    {
+        lock (_lock)
+        {
+            if (_hoverNode == packageName) return;
+            _hoverNode = packageName;
+        }
+
         QueueDraw();
+        _labelOverlay?.QueueDraw();
     }
 
     public void ClearSelection()
@@ -68,6 +512,7 @@ public partial class GskGraphWidget : DrawingArea
         }
 
         QueueDraw();
+        _labelOverlay?.QueueDraw();
     }
 
     public void UpdateData(string rootPackage, Dictionary<string, List<string>> dependencyMap)
@@ -77,13 +522,11 @@ public partial class GskGraphWidget : DrawingArea
             _rootPackage = rootPackage;
             _dependencyMap = dependencyMap;
             CalculateInitialLayout();
-
-            //150 seems to be a good number for good looking graphs. While not taking too long.
             RunSimulationStepForceAtlas2(150);
-            _isSimulating = false;
         }
 
         QueueDraw();
+        _labelOverlay?.QueueDraw();
     }
 
     public void SetTransform(double zoom, double panX, double panY)
@@ -92,6 +535,7 @@ public partial class GskGraphWidget : DrawingArea
         _panX = panX;
         _panY = panY;
         QueueDraw();
+        _labelOverlay?.QueueDraw();
     }
 
     public string? GetPackageAt(double x, double y)
@@ -101,18 +545,72 @@ public partial class GskGraphWidget : DrawingArea
         var gx = (x - w / 2.0 - _panX) / _zoom;
         var gy = (y - h / 2.0 - _panY) / _zoom;
 
-        const double half = 60 / 2.0;
+        const double radius = 22.0;
         lock (_lock)
         {
             foreach (var (name, pos) in _positions)
             {
-                if (!(gx >= pos.X - half) || !(gx <= pos.X + half) ||
-                    !(gy >= pos.Y - half) || !(gy <= pos.Y + half)) continue;
-                return name;
+                var dx = gx - pos.X;
+                var dy = gy - pos.Y;
+                if (dx * dx + dy * dy <= radius * radius)
+                    return name;
             }
         }
 
         return null;
+    }
+
+    public void DrawLabels(Context cr, int w, int h)
+    {
+        if (_zoom < 0.3) return;
+
+        lock (_lock)
+        {
+            if (string.IsNullOrEmpty(_rootPackage)) return;
+
+            cr.Translate(w / 2.0 + _panX, h / 2.0 + _panY);
+            cr.Scale(_zoom, _zoom);
+
+            var left = (-w / 2.0 - _panX) / _zoom;
+            var right = (w / 2.0 - _panX) / _zoom;
+            var top = (-h / 2.0 - _panY) / _zoom;
+            var bottom = (h / 2.0 - _panY) / _zoom;
+
+            var selectedNode = _foregroundNodes.FirstOrDefault();
+            var hasFg = (selectedNode ?? _hoverNode) != null;
+            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+
+            const float radius = 22f;
+
+            foreach (var (name, pos) in _positions)
+            {
+                if (pos.X < left || pos.X > right || pos.Y < top || pos.Y > bottom) continue;
+
+                var scale = _nodeScales.GetValueOrDefault(name, 1f);
+                if (scale < 0.2f) continue;
+
+                var isDimmed = hasFg && !highlighted.Contains(name);
+                var isSelected = name == selectedNode;
+                var isHovered = name == _hoverNode;
+
+                cr.NewPath();
+
+                if (isSelected)
+                    cr.SetSourceRgba(1, 1, 0.4, 1);
+                else if (isHovered)
+                    cr.SetSourceRgba(0.4, 0.8, 1, 1);
+                else if (isDimmed)
+                    cr.SetSourceRgba(1, 1, 1, 0.25 * scale);
+                else
+                    cr.SetSourceRgba(1, 1, 1, 0.85 * scale);
+
+                cr.SetFontSize(10 / _zoom);
+                cr.SelectFontFace("Sans", Cairo.FontSlant.Normal, Cairo.FontWeight.Bold);
+                cr.TextExtents(name, out var te);
+                cr.MoveTo(pos.X - te.Width / 2, pos.Y + radius + te.Height + 5 / _zoom);
+                cr.ShowText(name);
+            }
+        }
     }
 
     private void CalculateInitialLayout()
@@ -140,18 +638,17 @@ public partial class GskGraphWidget : DrawingArea
 
         _positions.Clear();
         _velocities.Clear();
+        _nodeScales.Clear();
 
         var leafCounts = new Dictionary<string, int>();
         CalculateLeafCounts(_rootPackage, childrenMap, leafCounts);
 
-        // Radial Layered Layout Calculation
         const float levelRadius = 500f;
         _positions[_rootPackage] = new Point { X = 0, Y = 0 };
         _velocities[_rootPackage] = new Point { X = 0, Y = 0 };
+        _nodeScales[_rootPackage] = 1f;
 
         PositionNodesRadial(_rootPackage, 0, 2 * (float)Math.PI, childrenMap, leafCounts, levelRadius);
-
-        _isSimulating = false;
     }
 
     private static int CalculateLeafCounts(string node, Dictionary<string, List<string>> childrenMap,
@@ -164,7 +661,6 @@ public partial class GskGraphWidget : DrawingArea
         }
 
         var count = children.Sum(child => CalculateLeafCounts(child, childrenMap, leafCounts));
-
         leafCounts[node] = count;
         return count;
     }
@@ -176,13 +672,9 @@ public partial class GskGraphWidget : DrawingArea
 
         var totalLeaves = leafCounts[parent];
         var currentAngle = minAngle;
-
-        // Add a small angular buffer between siblings (e.g., 2 degrees)
         const float angularBuffer = 0.035f;
         var availableAngle = maxAngle - minAngle;
         var totalBuffer = angularBuffer * (children.Count - 1);
-
-        // If the buffer is too large for the available space, reduce it
         var effectiveBuffer = (totalBuffer > availableAngle * 0.5f)
             ? (availableAngle * 0.5f / Math.Max(1, children.Count - 1))
             : angularBuffer;
@@ -190,39 +682,23 @@ public partial class GskGraphWidget : DrawingArea
         foreach (var child in children)
         {
             var childLeaves = leafCounts[child];
-
-            // Calculate span proportionally but leave room for buffers
             var angleSpan = (availableAngle - (children.Count - 1) * effectiveBuffer) *
                             (childLeaves / (float)totalLeaves);
             var angle = currentAngle + angleSpan / 2f;
 
-            var x = (float)(Math.Cos(angle) * radius);
-            var y = (float)(Math.Sin(angle) * radius);
-
-            _positions[child] = new Point { X = x, Y = y };
+            _positions[child] = new Point
+                { X = (float)(Math.Cos(angle) * radius), Y = (float)(Math.Sin(angle) * radius) };
             _velocities[child] = new Point { X = 0, Y = 0 };
+            _nodeScales[child] = 1f;
 
             PositionNodesRadial(child, currentAngle, currentAngle + angleSpan, childrenMap, leafCounts, radius + 500f);
-
             currentAngle += angleSpan + effectiveBuffer;
         }
     }
 
-    private void UpdateSimulation()
+    private void RunSimulationStepForceAtlas2(int iterations)
     {
-        lock (_lock)
-        {
-            if (_positions.Count == 0) return;
-            if (!RunSimulationStepForceAtlas2(10))
-            {
-                _isSimulating = false;
-            }
-        }
-    }
-
-    private bool RunSimulationStepForceAtlas2(int iterations)
-    {
-        if (_positions.Count == 0) return false;
+        if (_positions.Count == 0) return;
 
         const float kR = 600f; // Repulsion constant
         const float kA = 0.5f; // Attraction constant
@@ -232,7 +708,6 @@ public partial class GskGraphWidget : DrawingArea
         const float maxForce = 50f;
         var random = new Random();
 
-
         var nodes = _positions.Keys.ToList();
         var nodeToIndex = new Dictionary<string, int>();
         for (var i = 0; i < nodes.Count; i++) nodeToIndex[nodes[i]] = i;
@@ -240,7 +715,6 @@ public partial class GskGraphWidget : DrawingArea
         var rootIndex = -1;
         if (!string.IsNullOrEmpty(_rootPackage)) nodeToIndex.TryGetValue(_rootPackage, out rootIndex);
 
-        // 2. Pre-calculate degrees and edges using indices
         var degrees = new int[nodes.Count];
         var adjacencyList = new List<int>[nodes.Count];
         for (var i = 0; i < nodes.Count; i++) adjacencyList[i] = [];
@@ -257,7 +731,6 @@ public partial class GskGraphWidget : DrawingArea
             }
         }
 
-        // 3. Move positions and velocities to flat arrays for fast access
         var px = new float[nodes.Count];
         var py = new float[nodes.Count];
         var vx = new float[nodes.Count];
@@ -273,21 +746,14 @@ public partial class GskGraphWidget : DrawingArea
             vy[i] = v.Y;
         }
 
-        // 4. Pre-calculate foreground indices
-        var isForeground = new bool[nodes.Count];
         var hasForeground = _foregroundNodes.Count > 0;
-        foreach (var fgNode in _foregroundNodes)
-        {
-            if (nodeToIndex.TryGetValue(fgNode, out var idx)) isForeground[idx] = true;
-        }
 
-        // 5. Main Simulation Loop
         for (var it = 0; it < iterations; it++)
         {
             var fx = new float[nodes.Count];
             var fy = new float[nodes.Count];
 
-            // Repulsion 
+            // Repulsion
             for (var i = 0; i < nodes.Count; i++)
             {
                 var xA = px[i];
@@ -307,7 +773,7 @@ public partial class GskGraphWidget : DrawingArea
                         distSq = dx * dx + dy * dy + 0.1f;
                     }
 
-                    var dist = (float)Math.Sqrt(distSq);
+                    var dist = distSq * FastInvSqrt(distSq);
                     var force = Math.Min(kR * (degA + 1) * (degrees[j] + 1) / dist, maxForce * 2);
                     var dfx = (dx / dist) * force;
                     var dfy = (dy / dist) * force;
@@ -329,7 +795,7 @@ public partial class GskGraphWidget : DrawingArea
                     var dx = px[v] - xU;
                     var dy = py[v] - yU;
                     var distSq = dx * dx + dy * dy + 0.01f;
-                    var dist = (float)Math.Sqrt(distSq);
+                    var dist = distSq * FastInvSqrt(distSq);
 
                     var force = kA * dist;
                     var dfx = Math.Clamp((dx / dist) * force, -maxForce, maxForce);
@@ -348,272 +814,61 @@ public partial class GskGraphWidget : DrawingArea
                 var x = px[i];
                 var y = py[i];
                 var distSq = x * x + y * y + 0.01f;
-                var dist = (float)Math.Sqrt(distSq);
+                var dist = distSq * FastInvSqrt(distSq);
 
                 var force = kG * dist * (degrees[i] + 1);
                 fx[i] -= (x / dist) * force;
                 fy[i] -= (y / dist) * force;
             }
 
-            // Update Positions & Velocities
+            // Update positions
             float totalVelocity = 0;
             for (var i = 0; i < nodes.Count; i++)
             {
-                // Root is anchored if no foreground selection
                 if (i == rootIndex && !hasForeground) continue;
 
                 vx[i] = (vx[i] + fx[i] * timeStep) * damping;
                 vy[i] = (vy[i] + fy[i] * timeStep) * damping;
-
-                totalVelocity += (float)Math.Sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-
+                var mag2 = vx[i] * vx[i] + vy[i] * vy[i];
+                totalVelocity += mag2 * FastInvSqrt(mag2);
                 px[i] += vx[i] * timeStep;
                 py[i] += vy[i] * timeStep;
             }
 
-            if (totalVelocity < 0.005f * nodes.Count)
-            {
-                break;
-            }
+            if (totalVelocity < 0.005f * nodes.Count) break;
         }
 
-        // Sync results back to dictionaries
         for (var i = 0; i < nodes.Count; i++)
         {
-            var node = nodes[i];
-            _positions[node] = new Point { X = px[i], Y = py[i] };
-            _velocities[node] = new Point { X = vx[i], Y = vy[i] };
-        }
-
-        return true;
-    }
-
-    private void DrawInternal(DrawingArea area, Context cr, int w, int h)
-    {
-        if (string.IsNullOrEmpty(_rootPackage)) return;
-
-        cr.Translate(w / 2.0 + _panX, h / 2.0 + _panY);
-        cr.Scale(_zoom, _zoom);
-
-        DrawEdges(cr);
-        DrawNodes(cr);
-    }
-
-    private void DrawEdges(Context cr)
-    {
-        lock (_lock)
-        {
-            var nodes = _positions.Keys.ToList();
-            var nodeToIndex = new Dictionary<string, int>();
-            for (var i = 0; i < nodes.Count; i++) nodeToIndex[nodes[i]] = i;
-
-            var px = new float[nodes.Count];
-            var py = new float[nodes.Count];
-            for (var i = 0; i < nodes.Count; i++)
-            {
-                var p = _positions[nodes[i]];
-                px[i] = p.X;
-                py[i] = p.Y;
-            }
-            
-            if (_foregroundNodes.Count > 0)
-                cr.SetSourceRgba(.4, 4, 4, _foregroundNodes.Count > 0 ? 0.06 : 0.18);
-            else
-                cr.SetSourceRgba(.4, .4, 0.4, 0.9);
-
-            cr.LineWidth = 1.0 / _zoom;
-
-            foreach (var (package, deps) in _dependencyMap)
-            {
-                if (!nodeToIndex.TryGetValue(package, out var u)) continue;
-                var isUForeground = _foregroundNodes.Contains(package);
-
-                foreach (var dep in deps)
-                {
-                    if (!nodeToIndex.TryGetValue(dep, out var v)) continue;
-                    if (isUForeground || _foregroundNodes.Contains(dep)) continue;
-
-                    DrawEdgeCurve(cr, px[u], py[u], px[v], py[v], 60 / 2f);
-                }
-            }
-            
-            cr.SetSourceRgb(.6, .6, 0.6);
-            cr.LineWidth = 2.5 / _zoom;
-
-            foreach (var (package, deps) in _dependencyMap)
-            {
-                if (!nodeToIndex.TryGetValue(package, out var u)) continue;
-                var isUForeground = _foregroundNodes.Contains(package);
-
-                foreach (var dep in deps)
-                {
-                    if (!nodeToIndex.TryGetValue(dep, out var v)) continue;
-                    if (!isUForeground && !_foregroundNodes.Contains(dep)) continue;
-
-                    DrawEdgeCurve(cr, px[u], py[u], px[v], py[v], 60 / 2f);
-                }
-            }
+            _positions[nodes[i]] = new Point { X = px[i], Y = py[i] };
+            _velocities[nodes[i]] = new Point { X = vx[i], Y = vy[i] };
         }
     }
 
-    private static void DrawEdgeCurve(Context cr, float x1, float y1, float x2, float y2, float nodeRadius)
+    private static unsafe float FastInvSqrt(float x)
     {
-        var dx = x2 - x1;
-        var dy = y2 - y1;
-        var dist = (float)Math.Sqrt(dx * dx + dy * dy);
-        if (dist < 0.001f) return;
-
-        var nx = dx / dist;
-        var ny = dy / dist;
-
-        var sx = x1 + nx * nodeRadius;
-        var sy = y1 + ny * nodeRadius;
-        var ex = x2 - nx * nodeRadius;
-        var ey = y2 - ny * nodeRadius;
-
-        var cx = (sx + ex) / 2f + (ey - sy) * 0.15f;
-        var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
-
-        cr.NewPath();
-        cr.MoveTo(sx, sy);
-        cr.CurveTo(cx, cy, cx, cy, ex, ey);
-        cr.Stroke();
-    }
-
-    private void DrawNodes(Context cr)
-    {
-        lock (_lock)
-        {
-            const float nodeSize = 60;
-            (double R, double G, double B)[] levelColors =
-            [
-                (0.85, 0.35, 0.35),
-                (0.30, 0.55, 0.85),
-                (0.25, 0.75, 0.50),
-                (0.80, 0.60, 0.20),
-                (0.85, 0.35, 0.35),
-                (0.30, 0.55, 0.85),
-                (0.25, 0.75, 0.50),
-                (0.80, 0.60, 0.20),
-                (0.85, 0.35, 0.35),
-                (0.30, 0.55, 0.85),
-                (0.25, 0.75, 0.50),
-                (0.80, 0.60, 0.20),
-            ];
-
-            // Get the selected node and its neighbors
-            var selectedNode = _foregroundNodes.FirstOrDefault();
-            HashSet<string> highlightedNodes = [];
-            if (selectedNode != null)
-            {
-                highlightedNodes.Add(selectedNode);
-                // Dependencies (children)
-                if (_dependencyMap.TryGetValue(selectedNode, out var deps))
-                {
-                    foreach (var dep in deps) highlightedNodes.Add(dep);
-                }
-
-                // Dependants (parents)
-                foreach (var (parent, children) in _dependencyMap)
-                {
-                    if (children.Contains(selectedNode)) highlightedNodes.Add(parent);
-                }
-            }
-
-            var shouldDim = selectedNode != null;
-            foreach (var (name, pos) in _positions)
-            {
-                if (highlightedNodes.Contains(name)) continue;
-                var level = _levels.GetValueOrDefault(name, 0);
-                var color = levelColors[Math.Min(level, levelColors.Length - 1)];
-
-                var drawColor = shouldDim
-                    ? (color.R * 0.3, color.G * 0.3, color.B * 0.3)
-                    : color;
-
-                DrawNode(cr, name, pos, nodeSize, drawColor, false, false, shouldDim);
-            }
-
-            foreach (var name in highlightedNodes)
-            {
-                if (!_positions.TryGetValue(name, out var pos)) continue;
-                var level = _levels.GetValueOrDefault(name, 0);
-                var color = levelColors[Math.Min(level, levelColors.Length - 1)];
-                var isSelected = name == selectedNode;
-                DrawNode(cr, name, pos, nodeSize, color, true, isSelected, false);
-            }
-        }
-    }
-
-    private void DrawNode(Context cr, string name, Point pos, float nodeSize, (double R, double G, double B) color,
-        bool isHighlighted, bool isSelected, bool isDimmed)
-    {
-        var r = nodeSize / 2;
-
-        if (isSelected || isHighlighted)
-        {
-            var glowColor = isSelected ? (1.0, 1.0, 0.4) : (color.R, color.G, color.B);
-
-            cr.NewPath();
-            cr.Arc(pos.X, pos.Y, r * 2.0, 0, 2 * Math.PI);
-            cr.SetSourceRgba(glowColor.Item1, glowColor.Item2, glowColor.Item3, 0.08);
-            cr.Fill();
-
-            cr.NewPath();
-            cr.Arc(pos.X, pos.Y, r * 1.45, 0, 2 * Math.PI);
-            cr.SetSourceRgba(glowColor.Item1, glowColor.Item2, glowColor.Item3, 0.18);
-            cr.Fill();
-        }
-        
-        cr.NewPath();
-        cr.Arc(pos.X, pos.Y, r, 0, 2 * Math.PI);
-
-        if (isDimmed)
-            cr.SetSourceRgb(0.18, 0.18, 0.18);
-        else
-            cr.SetSourceRgb(color.R, color.G, color.B);
-
-        cr.Fill();
-        
-        cr.NewPath();
-        cr.Arc(pos.X, pos.Y, r, 0, 2 * Math.PI);
-
-        if (isSelected)
-        {
-            cr.SetSourceRgba(1, 1, 0.4, 1);
-            cr.LineWidth = 2.5 / _zoom;
-            cr.Stroke();
-            
-            cr.NewPath();
-            cr.Arc(pos.X, pos.Y, r * 1.6, 0, 2 * Math.PI);
-            cr.SetSourceRgba(1, 1, 0.4, 0.2);
-            cr.Fill();
-        }
-        else if (isHighlighted)
-        {
-            cr.SetSourceRgba(1, 0.6, 0.1, 0.9);
-            cr.LineWidth = 2.0 / _zoom;
-            cr.Stroke();
-        }
-        else
-        {
-            cr.SetSourceRgba(1, 1, 1, isDimmed ? 0.06 : 0.2);
-            cr.LineWidth = 1.0 / _zoom;
-            cr.Stroke();
-        }
-        
-        cr.NewPath();
-        cr.SetSourceRgba(1, 1, 1, isDimmed ? 0.25 : 0.85);
-        cr.SetFontSize(10 / _zoom);
-        cr.SelectFontFace("Sans", FontSlant.Normal, FontWeight.Bold);
-        cr.TextExtents(name, out var te);
-        cr.MoveTo(pos.X - te.Width / 2, pos.Y + r + te.Height + 5 / _zoom);
-        cr.ShowText(name);
+        var xhalf = 0.5f * x;
+        var i = *(int*)&x;
+        i = 0x5f3759df - (i >> 1);
+        x = *(float*)&i;
+        x *= 1.5f - xhalf * x * x; 
+        return x;
     }
 
     public override void Dispose()
     {
-        RemoveTickCallback(_tickId);
+        MakeCurrent();
+        if (_gl != null)
+        {
+            _gl.DeleteVertexArray(_nodeVao);
+            _gl.DeleteVertexArray(_edgeVao);
+            _gl.DeleteBuffer(_nodeVbo);
+            _gl.DeleteBuffer(_instanceVbo);
+            _gl.DeleteBuffer(_edgeVbo);
+            _gl.DeleteProgram(_nodeShader);
+            _gl.DeleteProgram(_edgeShader);
+        }
+
         base.Dispose();
     }
 }

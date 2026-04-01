@@ -30,6 +30,7 @@
     <ItemGroup>
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.0-preview.1" />
       <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.2.26159.112" />
+      <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
     </ItemGroup>
 
 </Project>

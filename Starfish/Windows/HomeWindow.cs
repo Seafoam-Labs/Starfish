@@ -12,7 +12,7 @@ public class HomeWindow(WebWindow webWindow)
        webWidget.SetVexpand(true);
        box.Append(webWidget);
        
-       Task.Run(async () => await webWindow.InitializeAsync("pacman", 3));
+       Task.Run(async () => await webWindow.InitializeAsync("shelly", 3));
 
        return box;
     }
