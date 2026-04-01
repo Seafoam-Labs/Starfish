@@ -6,12 +6,7 @@ namespace Starfish.Services;
 
 public class UnprivilegedOperationService : IUnprivilegedOperationService
 {
-    private readonly string _cliPath;
-
-    public UnprivilegedOperationService()
-    {
-        _cliPath = FindCliPath();
-    }
+    private readonly string _cliPath = FindCliPath();
 
     private static string FindCliPath()
     {
@@ -51,6 +46,40 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
     public async Task<List<AlpmPackageDto>> GetAllPackagesAsync()
     {
         var result = await ExecuteUnprivilegedCommandAsync("List all packages", "list-available --json");
+
+        if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
+        {
+            return [];
+        }
+
+        try
+        {
+            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
+            {
+                var trimmedLine = StripBom(line.Trim());
+                if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
+                {
+                    var updates = System.Text.Json.JsonSerializer.Deserialize(trimmedLine,
+                        SeahorseGtkContext.Default.ListAlpmPackageDto);
+                    return updates ?? [];
+                }
+            }
+
+            var allUpdates = System.Text.Json.JsonSerializer.Deserialize(StripBom(result.Output.Trim()),
+                SeahorseGtkContext.Default.ListAlpmPackageDto);
+            return allUpdates ?? [];
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to parse updates JSON: {ex.Message}");
+            return [];
+        }
+    }
+    
+    public async Task<List<AlpmPackageDto>> GetAllInstalledPackagesAsync()
+    {
+        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "list-installed -j");
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
         {

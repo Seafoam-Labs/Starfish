@@ -9,5 +9,70 @@
                 <property name="vexpand">true</property>
             </object>
         </child>
+       
+        <child>
+            <object class="GtkBox">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">5</property>
+                <property name="halign">baseline</property>
+                <property name="margin-bottom">10</property>
+                <property name="margin-top">10</property>
+                <property name="margin-start">10</property>
+                <property name="margin-end">10</property>
+                <child>
+                    <object class="GtkSpinButton" id="depth_spin">
+                        <property name="adjustment">
+                            <object class="GtkAdjustment">
+                                <property name="lower">1</property>
+                                <property name="upper">10</property>
+                                <property name="step-increment">1</property>
+                                <property name="value">3</property>
+                            </object>
+                        </property>
+
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkButton" id="show_inverse">
+                        <property name="label">Show Inverse</property>
+
+                    </object>
+                </child>
+               
+                <child>
+                    <object class="GtkButton" id="show_forward">
+                        <property name="label">Show Forward</property>
+
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkButton" id="install_only">
+                        <property name="label">Installed Only</property>
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkButton" id="all_only">
+                        <property name="label">All Depencies</property>
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkButton" id="reset_pan">
+                        <property name="label">Reset Pan</property>
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkLabel" id="inverse_label">
+                        <property name="label">Show Inverse</property>
+
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkLabel" id="all_label">
+                        <property name="label">Show Inverse</property>
+
+                    </object>
+                </child>
+            </object>
+        </child>
     </object>
 </interface>

@@ -5,6 +5,8 @@ namespace Starfish.Services;
 public interface IUnprivilegedOperationService
 {
     Task<List<AlpmPackageDto>> GetAllPackagesAsync();
+    
+    Task<List<AlpmPackageDto>> GetAllInstalledPackagesAsync();
 }
 
 public class UnprivilegedOperationResult

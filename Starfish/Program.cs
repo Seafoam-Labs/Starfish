@@ -52,8 +52,6 @@ sealed class Program
             
             var homeWindow = serviceProvider.GetRequiredService<HomeWindow>();
             contentArea.Append(homeWindow.CreateWindow());
-
-            var mainOverlay = (Overlay)mainBuilder.GetObject("MainOverlay")!;
             
             window.Show();
             
