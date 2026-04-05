@@ -26,14 +26,14 @@ sha256sums=('a00b159faa548a37663a552ab24159788cd2201ce7c717218e21567744b6a3a1')
 build() {
   cd "$srcdir/Starfish-${pkgver}"
 
- dotnet publish Shelly.Gtk/Starfish.csproj -c Release -r linux-x64 -o out --nologo -p:InstructionSet=${INSTRUCTIONS:=x86-64}
+  dotnet publish Starfish/Starfish.csproj -c Release -r linux-x64 -o out --nologo -p:InstructionSet=${INSTRUCTIONS:=x86-64}
 }
 
 package() {
   cd "$srcdir/Starfish-${pkgver}"
 
-  # Install Shelly.Gtk binary
-  install -Dm755 out/starfish "$pkgdir/usr/bin/starfish"
+  # Install starfish-ui binary
+  install -Dm755 out/starfish-ui "$pkgdir/usr/bin/starfish"
 
   # Install desktop entry
   cat <<'EOF' | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/com.seafoamlabs.starfish.desktop"
@@ -41,13 +41,12 @@ package() {
 Name=Starfish
 Comment=Arch Depdency Viewer
 Exec=/usr/bin/starfish
-Icon=shelly
+Icon=starfishlogo
 Type=Application
 Categories=System;Utility;
 Terminal=false
 EOF
 
   # Install icon
-  install -Dm644 Starfish/Assets/starfishlogo.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/starfishlogo.png"
- 
+  install -Dm644 Starfish/Assets/starfish.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/starfishlogo.png"
 }

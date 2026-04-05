@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libglib2.0-dev libegl1-mesa-dev clang
+
+      - name: Build and Publish (AOT)
+        run: |
+          dotnet publish Starfish/Starfish.csproj -c Release -r linux-x64 -o out --nologo
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir artifacts
+          cp out/starfish-ui artifacts/starfish
+          cp Starfish/Assets/starfish.png artifacts/
+          cp LICENSE artifacts/
+
+      - name: Create Tarball
+        run: |
+          tar -czvf starfish-linux-x64.tar.gz -C artifacts .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            starfish-linux-x64.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
