@@ -63,7 +63,7 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
             
             dictionary[currentName] = resolvedDeps;
             
-            foreach (var dep in resolvedDeps.Where(dep => visited.Add(dep)))
+            foreach (var dep in resolvedDeps.Where(visited.Add))
             {
                 queue.Enqueue((dep, currentDepth + 1));
             }
@@ -93,7 +93,7 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
 
             if (currentDepth >= depth) continue;
             dictionary[currentName] = package.RequiredBy;
-            foreach (var req in package.RequiredBy.Where(req => visited.Add(req)))
+            foreach (var req in package.RequiredBy.Where(visited.Add))
             {
                 queue.Enqueue((req, currentDepth + 1));
             }
@@ -132,7 +132,7 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
                 
             dictionary[currentName] = installedDeps;
             
-            foreach (var dep in installedDeps.Where(dep => visited.Add(dep)))
+            foreach (var dep in installedDeps.Where(visited.Add))
             {
                 queue.Enqueue((dep, currentDepth + 1));
             }
@@ -165,7 +165,7 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
             var installedReqs = package.RequiredBy.Where(req => _installedNames!.Contains(req)).ToList();
             dictionary[currentName] = installedReqs;
 
-            foreach (var req in installedReqs.Where(req => visited.Add(req)))
+            foreach (var req in installedReqs.Where(visited.Add))
             {
                 queue.Enqueue((req, currentDepth + 1));
             }

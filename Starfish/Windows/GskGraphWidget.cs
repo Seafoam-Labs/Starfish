@@ -23,11 +23,41 @@ public class GskGraphWidget : GLArea
 
     private GL? _gl;
     private uint _nodeVao, _nodeVbo, _instanceVbo;
-    private uint _edgeVao, _edgeVbo;
+    private uint _edgeVao, _edgeVbo, _edgeEbo;
     private uint _nodeShader, _edgeShader;
+    private uint _nodeShaderPerf, _edgeShaderPerf;
+    private bool _usePerformanceShaders = false;
+    private bool _lockHover = false;
     private DrawingArea? _labelOverlay;
+    private readonly DateTime _startTime = DateTime.UtcNow;
+
+    private float[] _nodeInstanceData = new float[1024 * 7];
+    private float[] _edgeVertexData = new float[4096 * 8];
+    private uint[] _edgeIndexData = new uint[4096 * 2];
 
     private readonly Dictionary<string, float> _nodeScales = new();
+
+    public bool UsePerformanceShaders
+    {
+        get => _usePerformanceShaders;
+        set
+        {
+            if (_usePerformanceShaders == value) return;
+            _usePerformanceShaders = value;
+            QueueDraw();
+        }
+    }
+
+    public bool LockHover
+    {
+        get => _lockHover;
+        set
+        {
+            if (_lockHover == value) return;
+            _lockHover = value;
+            QueueDraw();
+        }
+    }
 
     public GskGraphWidget()
     {
@@ -47,6 +77,9 @@ public class GskGraphWidget : GLArea
         _gl.Enable(EnableCap.LineSmooth);
         _gl.Hint(HintTarget.LineSmoothHint, HintMode.Nicest);
 
+        _gl.Disable(EnableCap.DepthTest);
+        _gl.Disable(EnableCap.CullFace);
+
         SetupShaders();
         SetupBuffers();
     }
@@ -62,8 +95,10 @@ public class GskGraphWidget : GLArea
         _gl.ClearColor(0.15f, 0.15f, 0.15f, 1f);
         _gl.Clear(ClearBufferMask.ColorBufferBit);
 
+        var time = (float)(DateTime.UtcNow - _startTime).TotalSeconds;
+
         AnimateScales();
-        DrawEdgesGl(w, h);
+        DrawEdgesGl(w, h, time);
         DrawNodesGl(w, h);
 
         if (!ScalesAreAnimating()) return true;
@@ -84,6 +119,8 @@ public class GskGraphWidget : GLArea
         _gl.DeleteBuffer(_edgeVbo);
         _gl.DeleteProgram(_nodeShader);
         _gl.DeleteProgram(_edgeShader);
+        _gl.DeleteProgram(_nodeShaderPerf);
+        _gl.DeleteProgram(_edgeShaderPerf);
     }
 
     public void SetLabelOverlay(DrawingArea overlay)
@@ -96,6 +133,8 @@ public class GskGraphWidget : GLArea
     {
         _nodeShader = CreateShaderProgram(ShaderConstants.NodeVert, ShaderConstants.NodeFrag);
         _edgeShader = CreateShaderProgram(ShaderConstants.EdgeVert, ShaderConstants.EdgeFrag);
+        _nodeShaderPerf = CreateShaderProgram(ShaderConstants.NodeVert, ShaderConstants.NodeFragPerformance);
+        _edgeShaderPerf = CreateShaderProgram(ShaderConstants.EdgeVert, ShaderConstants.EdgeFragPerformance);
     }
 
     private uint CreateShaderProgram(string vertSrc, string fragSrc)
@@ -176,7 +215,7 @@ public class GskGraphWidget : GLArea
 
         gl.BindVertexArray(0);
 
-        // Edge buffer — layout per vertex: x, y, r, g, b, a = 6 floats
+        // Edge buffer — layout per vertex: x, y, r, g, b, a, t, side = 8 floats
         _edgeVao = gl.GenVertexArray();
         gl.BindVertexArray(_edgeVao);
 
@@ -184,21 +223,41 @@ public class GskGraphWidget : GLArea
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _edgeVbo);
         gl.BufferData(BufferTargetARB.ArrayBuffer, 0, null, BufferUsageARB.DynamicDraw);
 
+        _edgeEbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _edgeEbo);
+        gl.BufferData(BufferTargetARB.ElementArrayBuffer, 0, null, BufferUsageARB.DynamicDraw);
+
         gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 24, (void*)0); // pos
+        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 32, (void*)0); // pos
         gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 24, (void*)8); // color
+        gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 32, (void*)8); // color
+        gl.EnableVertexAttribArray(2);
+        gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, 32, (void*)24); // t
+        gl.EnableVertexAttribArray(3);
+        gl.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false, 32, (void*)28); // side
 
         gl.BindVertexArray(0);
     }
 
-    private unsafe void DrawEdgesGl(int w, int h)
+    private unsafe void DrawEdgesGl(int w, int h, float time)
     {
         var gl = _gl!;
         var proj = BuildProjection(w, h);
 
-        var bgVerts = new List<float>();
-        var fgVerts = new List<float>();
+        var vertIdx = 0;
+        var indexIdx = 0;
+
+        (double R, double G, double B)[] levelColors =
+        [
+            (0.35, 0.45, 0.85), 
+            (0.15, 0.70, 0.60), 
+            (0.95, 0.45, 0.55), 
+            (0.60, 0.40, 0.80), 
+            (0.90, 0.65, 0.20), 
+            (0.40, 0.65, 0.85), 
+            (0.55, 0.70, 0.35), 
+            (0.85, 0.55, 0.40), 
+        ];
 
         lock (_lock)
         {
@@ -211,71 +270,62 @@ public class GskGraphWidget : GLArea
                 if (!_positions.TryGetValue(package, out var fromPos)) continue;
                 var isNodeHighlighted = highlighted.Contains(package);
 
+                var fromLevel = _levels.GetValueOrDefault(package, 0);
+                var fromC = levelColors[Math.Min(fromLevel, levelColors.Length - 1)];
+
                 foreach (var dep in deps)
                 {
                     if (!_positions.TryGetValue(dep, out var toPos)) continue;
                     var isEdgeHighlighted = isNodeHighlighted && highlighted.Contains(dep);
 
-                    const float r = 1f;
-                    const float g = 1f;
-                    float b, a;
-                    List<float> targetVerts;
-                    if (isEdgeHighlighted)
-                    {
-                        b = 0.9f;
-                        a = 0.4f;
-                        targetVerts = fgVerts;
-                    }
-                    else if (hasFg)
-                    {
-                        b = 1f;
-                        a = 0.06f;
-                        targetVerts = bgVerts;
-                    }
-                    else
-                    {
-                        b = 1f;
-                        a = 0.18f;
-                        targetVerts = bgVerts;
-                    }
+                    var toLevel = _levels.GetValueOrDefault(dep, 0);
+                    var toC = levelColors[Math.Min(toLevel, levelColors.Length - 1)];
+
+                    var bA = hasFg ? (isEdgeHighlighted ? 1.0f : 0.08f) : 0.25f;
 
                     var fromScale = _nodeScales.GetValueOrDefault(package, 1f);
                     var toScale = _nodeScales.GetValueOrDefault(dep, 1f);
-                    AddCurvedEdge(targetVerts, fromPos.X, fromPos.Y, toPos.X, toPos.Y, 22f * fromScale, 22f * toScale,
-                        r, g, b, a);
+                    AddCurvedEdge(ref vertIdx, ref indexIdx, fromPos.X, fromPos.Y, toPos.X, toPos.Y, 22f * fromScale, 22f * toScale,
+                        (float)fromC.R, (float)fromC.G, (float)fromC.B, bA,
+                        (float)toC.R, (float)toC.G, (float)toC.B, bA);
                 }
             }
         }
 
-        var totalCount = bgVerts.Count + fgVerts.Count;
-        if (totalCount == 0) return;
+        if (indexIdx == 0) return;
 
-        var arr = new float[totalCount];
-        bgVerts.CopyTo(arr, 0);
-        fgVerts.CopyTo(arr, bgVerts.Count);
-
-        gl.UseProgram(_edgeShader);
-        SetUniformMat4(_edgeShader, "uProjection", proj);
+        var shader = _usePerformanceShaders ? _edgeShaderPerf : _edgeShader;
+        gl.UseProgram(shader);
+        SetUniformMat4(shader, "uProjection", proj);
+        if (!_usePerformanceShaders)
+            gl.Uniform1(gl.GetUniformLocation(shader, "uTime"), time);
 
         gl.BindVertexArray(_edgeVao);
+        
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _edgeVbo);
-        fixed (float* p = arr)
-            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(arr.Length * 4),
-                p, BufferUsageARB.DynamicDraw);
+        fixed (float* p = _edgeVertexData)
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(vertIdx * 4),
+                p, BufferUsageARB.StreamDraw);
+
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _edgeEbo);
+        fixed (uint* p = _edgeIndexData)
+            gl.BufferData(BufferTargetARB.ElementArrayBuffer, (nuint)(indexIdx * 4),
+                p, BufferUsageARB.StreamDraw);
 
         gl.Enable(EnableCap.Blend);
-        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-        gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(arr.Length / 6));
+        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); // Additive-ish for glow
+        gl.DrawElements(PrimitiveType.Triangles, (uint)indexIdx, DrawElementsType.UnsignedInt, (void*)0);
         gl.BindVertexArray(0);
     }
 
-    private static void AddCurvedEdge(List<float> verts, float x1, float y1, float x2, float y2, float r1, float r2,
-        float r, float g, float b, float a)
+    private void AddCurvedEdge(ref int vertIdx, ref int indexIdx, float x1, float y1, float x2, float y2, float r1, float r2,
+        float r1C, float g1C, float b1C, float a1C, float r2C, float g2C, float b2C, float a2C)
     {
         var dx = x2 - x1;
         var dy = y2 - y1;
-        var dist = (float)Math.Sqrt(dx * dx + dy * dy);
-        if (dist < 0.001f) return;
+        var distSq = dx * dx + dy * dy;
+        if (distSq < 0.001f) return;
+        var dist = (float)Math.Sqrt(distSq);
 
         var nx = dx / dist;
         var ny = dy / dist;
@@ -288,24 +338,71 @@ public class GskGraphWidget : GLArea
         var cx = (sx + ex) / 2f + (ey - sy) * 0.15f;
         var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
 
-        const int segments = 32;
-        var prevX = sx;
-        var prevY = sy;
+        const int segments = 8;
+        
+        var perpX = -(ey - sy);
+        var perpY = ex - sx;
+        var pLen = (float)Math.Sqrt(perpX * perpX + perpY * perpY);
+        if (pLen > 0.0001f) { perpX /= pLen; perpY /= pLen; }
 
-        for (var i = 1; i <= segments; i++)
+        const float thickness = 2.0f;
+        
+        var requiredVerts = vertIdx + (segments + 1) * 2 * 8;
+        if (requiredVerts > _edgeVertexData.Length)
+            Array.Resize(ref _edgeVertexData, Math.Max(_edgeVertexData.Length * 2, requiredVerts));
+
+        var requiredIndices = indexIdx + segments * 6;
+        if (requiredIndices > _edgeIndexData.Length)
+            Array.Resize(ref _edgeIndexData, Math.Max(_edgeIndexData.Length * 2, requiredIndices));
+
+        var baseVertIdx = vertIdx / 8;
+
+        for (var i = 0; i <= segments; i++)
         {
             var t = i / (float)segments;
             var omt = 1f - t;
+            
+            // Quadratic Bezier
+            var vx = omt * omt * sx + 2f * omt * t * cx + t * t * ex;
+            var vy = omt * omt * sy + 2f * omt * t * cy + t * t * ey;
 
-            // Quadratic Bezier: (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
-            var tx = omt * omt * sx + 2f * omt * t * cx + t * t * ex;
-            var ty = omt * omt * sy + 2f * omt * t * cy + t * t * ey;
+            var r = r1C * omt + r2C * t;
+            var g = g1C * omt + g2C * t;
+            var b = b1C * omt + b2C * t;
+            var a = a1C * omt + a2C * t;
 
-            verts.AddRange([prevX, prevY, r, g, b, a]);
-            verts.AddRange([tx, ty, r, g, b, a]);
+            // Lower vertex (side -1)
+            _edgeVertexData[vertIdx++] = vx - perpX * thickness;
+            _edgeVertexData[vertIdx++] = vy - perpY * thickness;
+            _edgeVertexData[vertIdx++] = r;
+            _edgeVertexData[vertIdx++] = g;
+            _edgeVertexData[vertIdx++] = b;
+            _edgeVertexData[vertIdx++] = a;
+            _edgeVertexData[vertIdx++] = t;
+            _edgeVertexData[vertIdx++] = -1f;
 
-            prevX = tx;
-            prevY = ty;
+            // Upper vertex (side 1)
+            _edgeVertexData[vertIdx++] = vx + perpX * thickness;
+            _edgeVertexData[vertIdx++] = vy + perpY * thickness;
+            _edgeVertexData[vertIdx++] = r;
+            _edgeVertexData[vertIdx++] = g;
+            _edgeVertexData[vertIdx++] = b;
+            _edgeVertexData[vertIdx++] = a;
+            _edgeVertexData[vertIdx++] = t;
+            _edgeVertexData[vertIdx++] = 1f;
+
+            if (i >= segments) continue;
+            var v0 = (uint)(baseVertIdx + i * 2);
+            var v1 = v0 + 1;
+            var v2 = v0 + 2;
+            var v3 = v0 + 3;
+
+            _edgeIndexData[indexIdx++] = v0;
+            _edgeIndexData[indexIdx++] = v1;
+            _edgeIndexData[indexIdx++] = v2;
+            _edgeIndexData[indexIdx++] = v1;
+            _edgeIndexData[indexIdx++] = v3;
+            _edgeIndexData[indexIdx++] = v2;
         }
     }
 
@@ -316,19 +413,28 @@ public class GskGraphWidget : GLArea
 
         (double R, double G, double B)[] levelColors =
         [
-            (0.85, 0.35, 0.35), (0.30, 0.55, 0.85),
-            (0.25, 0.75, 0.50), (0.80, 0.60, 0.20),
-            (0.85, 0.35, 0.35), (0.30, 0.55, 0.85),
-            (0.25, 0.75, 0.50), (0.80, 0.60, 0.20),
+            (0.35, 0.45, 0.85),
+            (0.15, 0.70, 0.60),
+            (0.95, 0.45, 0.55), 
+            (0.60, 0.40, 0.80), 
+            (0.90, 0.65, 0.20), 
+            (0.40, 0.65, 0.85), 
+            (0.55, 0.70, 0.35), 
+            (0.85, 0.55, 0.40), 
         ];
 
-        var instances = new List<float>();
+        var instances = _nodeInstanceData;
+        var instanceIdx = 0;
 
         lock (_lock)
         {
             var selectedNode = _foregroundNodes.FirstOrDefault();
             var highlighted = BuildHighlighted(selectedNode, _hoverNode);
             var hasFg = (selectedNode ?? _hoverNode) != null;
+
+            if (_positions.Count * 7 > instances.Length)
+                Array.Resize(ref _nodeInstanceData, _positions.Count * 7);
+            instances = _nodeInstanceData;
 
             foreach (var (name, pos) in _positions)
             {
@@ -343,20 +449,20 @@ public class GskGraphWidget : GLArea
                 float r, g, b;
                 if (isDimmed)
                 {
-                    r = 0.18f;
-                    g = 0.18f;
-                    b = 0.18f;
+                    r = 0.12f;
+                    g = 0.12f;
+                    b = 0.12f;
                 }
                 else if (isSelected)
                 {
                     r = 1f;
                     g = 1f;
-                    b = 0.4f;
+                    b = 0.8f;
                 }
                 else if (isHovered)
                 {
-                    r = 0.4f;
-                    g = 0.8f;
+                    r = 0.6f;
+                    g = 0.9f;
                     b = 1f;
                 }
                 else
@@ -371,23 +477,29 @@ public class GskGraphWidget : GLArea
                 var radius = 22f * scale;
 
                 // x, y, radius, r, g, b, glow
-                instances.AddRange([pos.X, pos.Y, radius, r, g, b, glow]);
+                instances[instanceIdx++] = pos.X;
+                instances[instanceIdx++] = pos.Y;
+                instances[instanceIdx++] = radius;
+                instances[instanceIdx++] = r;
+                instances[instanceIdx++] = g;
+                instances[instanceIdx++] = b;
+                instances[instanceIdx++] = glow;
             }
         }
 
-        if (instances.Count == 0) return;
+        if (instanceIdx == 0) return;
 
-        var arr = instances.ToArray();
-        var count = (uint)(arr.Length / 7);
+        var count = (uint)(instanceIdx / 7);
 
-        gl.UseProgram(_nodeShader);
-        SetUniformMat4(_nodeShader, "uProjection", proj);
+        var shader = _usePerformanceShaders ? _nodeShaderPerf : _nodeShader;
+        gl.UseProgram(shader);
+        SetUniformMat4(shader, "uProjection", proj);
 
         gl.BindVertexArray(_nodeVao);
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
-        fixed (float* p = arr)
-            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(arr.Length * 4),
-                p, BufferUsageARB.DynamicDraw);
+        fixed (float* p = instances)
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(instanceIdx * 4),
+                p, BufferUsageARB.StreamDraw);
 
         gl.Enable(EnableCap.Blend);
 
@@ -435,7 +547,7 @@ public class GskGraphWidget : GLArea
                     highlighted.Add(parent);
         }
 
-        if (hoverNode != null)
+        if (hoverNode == null) return highlighted;
         {
             highlighted.Add(hoverNode);
             if (_dependencyMap.TryGetValue(hoverNode, out var hDeps))
@@ -496,6 +608,7 @@ public class GskGraphWidget : GLArea
     {
         lock (_lock)
         {
+            if (_lockHover && _hoverNode != null && packageName != _hoverNode) return;
             if (_hoverNode == packageName) return;
             _hoverNode = packageName;
         }

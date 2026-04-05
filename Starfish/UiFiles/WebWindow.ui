@@ -4,6 +4,27 @@
     <object class="GtkBox" id="WebWindow">
         <property name="orientation">vertical</property>
         <child>
+            <object class="GtkBox">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">10</property>
+                <property name="margin-start">10</property>
+                <property name="margin-end">10</property>
+                <property name="margin-top">5</property>
+                <property name="margin-bottom">5</property>
+                <child>
+                    <object class="GtkCheckButton" id="performance_mode">
+                        <property name="label">Performance Mode</property>
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkCheckButton" id="lock_hover">
+                        <property name="label">Lock Hover</property>
+                        <property name="margin-start">10</property>
+                    </object>
+                </child>
+            </object>
+        </child>
+        <child>
             <object class="GtkDrawingArea" id="graph_canvas">
                 <property name="hexpand">true</property>
                 <property name="vexpand">true</property>

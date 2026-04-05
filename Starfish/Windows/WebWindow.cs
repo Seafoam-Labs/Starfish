@@ -110,6 +110,16 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         resetPan.OnClicked += (sender, args) => {
           ResetPan();
         };
+
+        var perfBtn = (CheckButton)builder.GetObject("performance_mode")!;
+        perfBtn.OnToggled += (sender, args) => {
+            _graphWidget.UsePerformanceShaders = sender.GetActive();
+        };
+
+        var lockHoverBtn = (CheckButton)builder.GetObject("lock_hover")!;
+        lockHoverBtn.OnToggled += (sender, args) => {
+            _graphWidget.LockHover = sender.GetActive();
+        };
         
         var oldCanvas = (Widget?)builder.GetObject("graph_canvas");
         if (oldCanvas != null)
