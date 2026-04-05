@@ -1,8 +1,8 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
-pkgname=Starfish
+pkgname=starfish
 pkgver=0.0.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Starfish: Arch Depdency Viewer"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Starfish"
@@ -12,7 +12,7 @@ depends=(
     'shelly'
     'gtk4'
     'glib2'
-    'libEGL'
+    'mesa'
     'hicolor-icon-theme'
     'glibc'
 )
@@ -21,7 +21,7 @@ makedepends=('dotnet-sdk-10.0' 'clang')
 # Source tarball from GitHub release
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Seafoam-Labs/Starfish/archive/v${pkgver}.tar.gz")
 
-sha256sums=('a00b159faa548a37663a552ab24159788cd2201ce7c717218e21567744b6a3a1')
+sha256sums=('8b3acc13a4fc7315a3a694126da25635f173fff2e880c905759261c8afda01c3')
 
 build() {
   cd "$srcdir/Starfish-${pkgver}"
