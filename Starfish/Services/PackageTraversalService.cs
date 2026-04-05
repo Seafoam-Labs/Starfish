@@ -12,14 +12,21 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
     private HashSet<string>? _installedNames;
 
 
+    private static string StripVersion(string dependency)
+    {
+        var index = dependency.IndexOfAny(['>', '<', '=']);
+        return index == -1 ? dependency : dependency[..index].Trim();
+    }
+
     private IEnumerable<AlpmPackageDto> ResolveDependency(string dependency)
     {
-        if (_packageMap != null && _packageMap.TryGetValue(dependency, out var pkg))
+        var name = StripVersion(dependency);
+        if (_packageMap != null && _packageMap.TryGetValue(name, out var pkg))
         {
             yield return pkg;
         }
 
-        if (_providesMap == null || !_providesMap.TryGetValue(dependency, out var providers)) yield break;
+        if (_providesMap == null || !_providesMap.TryGetValue(name, out var providers)) yield break;
         foreach (var provider in providers)
         {
             yield return provider;

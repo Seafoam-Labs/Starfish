@@ -338,7 +338,7 @@ public class GskGraphWidget : GLArea
         var cx = (sx + ex) / 2f + (ey - sy) * 0.15f;
         var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
 
-        const int segments = 5;
+        const int segments = 7;
         
         var perpX = -(ey - sy);
         var perpY = ex - sx;
@@ -617,17 +617,6 @@ public class GskGraphWidget : GLArea
         _labelOverlay?.QueueDraw();
     }
 
-    public void ClearSelection()
-    {
-        lock (_lock)
-        {
-            _foregroundNodes.Clear();
-        }
-
-        QueueDraw();
-        _labelOverlay?.QueueDraw();
-    }
-
     public void UpdateData(string rootPackage, Dictionary<string, List<string>> dependencyMap)
     {
         lock (_lock)
@@ -886,7 +875,7 @@ public class GskGraphWidget : GLArea
                         distSq = dx * dx + dy * dy + 0.1f;
                     }
 
-                    var dist = distSq * FastInvSqrt(distSq);
+                    var dist = MathF.Sqrt(distSq);
                     var force = Math.Min(kR * (degA + 1) * (degrees[j] + 1) / dist, maxForce * 2);
                     var dfx = (dx / dist) * force;
                     var dfy = (dy / dist) * force;
@@ -908,7 +897,7 @@ public class GskGraphWidget : GLArea
                     var dx = px[v] - xU;
                     var dy = py[v] - yU;
                     var distSq = dx * dx + dy * dy + 0.01f;
-                    var dist = distSq * FastInvSqrt(distSq);
+                    var dist = MathF.Sqrt(distSq);
 
                     var force = kA * dist;
                     var dfx = Math.Clamp((dx / dist) * force, -maxForce, maxForce);
@@ -927,7 +916,7 @@ public class GskGraphWidget : GLArea
                 var x = px[i];
                 var y = py[i];
                 var distSq = x * x + y * y + 0.01f;
-                var dist = distSq * FastInvSqrt(distSq);
+                var dist = MathF.Sqrt(distSq);
 
                 var force = kG * dist * (degrees[i] + 1);
                 fx[i] -= (x / dist) * force;
@@ -943,7 +932,8 @@ public class GskGraphWidget : GLArea
                 vx[i] = (vx[i] + fx[i] * timeStep) * damping;
                 vy[i] = (vy[i] + fy[i] * timeStep) * damping;
                 var mag2 = vx[i] * vx[i] + vy[i] * vy[i];
-                totalVelocity += mag2 * FastInvSqrt(mag2);
+               
+                totalVelocity +=  MathF.Sqrt(mag2);
                 px[i] += vx[i] * timeStep;
                 py[i] += vy[i] * timeStep;
             }
@@ -956,16 +946,6 @@ public class GskGraphWidget : GLArea
             _positions[nodes[i]] = new Point { X = px[i], Y = py[i] };
             _velocities[nodes[i]] = new Point { X = vx[i], Y = vy[i] };
         }
-    }
-
-    private static unsafe float FastInvSqrt(float x)
-    {
-        var xhalf = 0.5f * x;
-        var i = *(int*)&x;
-        i = 0x5f3759df - (i >> 1);
-        x = *(float*)&i;
-        x *= 1.5f - xhalf * x * x; 
-        return x;
     }
 
     public override void Dispose()
