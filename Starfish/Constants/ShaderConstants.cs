@@ -39,7 +39,7 @@ public static class ShaderConstants
                                              void main()
                                              {
                                                  float distSq = dot(vUV, vUV);
-                                                 if (distSq > 0.2) discard; // Faster discard
+                                                 if (distSq > 0.1936) discard; // 0.44 * 0.44
                                                  
                                                  float circle = 1.0 - smoothstep(0.40, 0.44, sqrt(distSq));
                                                  float stroke = (1.0 - smoothstep(0.36, 0.38, sqrt(distSq))) * (smoothstep(0.42, 0.44, sqrt(distSq))) * vGlow;
@@ -121,8 +121,7 @@ public static class ShaderConstants
                                              
                                              void main() 
                                              {
-                                                 float sideFade = 1.0 - abs(vSide);
-                                                 float alpha = vColor.a * sideFade;
+                                                 float alpha = vColor.a * (1.0 - abs(vSide));
                                                  if (alpha < 0.05) discard;
                                                  FragColor = vec4(vColor.rgb, alpha);
                                              }

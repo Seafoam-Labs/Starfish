@@ -75,7 +75,7 @@ public class GskGraphWidget : GLArea
 
         _gl.Enable(EnableCap.Multisample);
         _gl.Enable(EnableCap.LineSmooth);
-        _gl.Hint(HintTarget.LineSmoothHint, HintMode.Nicest);
+        _gl.Hint(HintTarget.LineSmoothHint, HintMode.Fastest);
 
         _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.CullFace);
@@ -338,7 +338,7 @@ public class GskGraphWidget : GLArea
         var cx = (sx + ex) / 2f + (ey - sy) * 0.15f;
         var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
 
-        const int segments = 8;
+        const int segments = 5;
         
         var perpX = -(ey - sy);
         var perpY = ex - sx;
