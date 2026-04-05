@@ -26,8 +26,8 @@ public class GskGraphWidget : GLArea
     private uint _edgeVao, _edgeVbo, _edgeEbo;
     private uint _nodeShader, _edgeShader;
     private uint _nodeShaderPerf, _edgeShaderPerf;
-    private bool _usePerformanceShaders = false;
-    private bool _lockHover = false;
+    private bool _usePerformanceShaders;
+    private bool _lockHover;
     private DrawingArea? _labelOverlay;
     private readonly DateTime _startTime = DateTime.UtcNow;
 
@@ -59,6 +59,7 @@ public class GskGraphWidget : GLArea
         }
     }
 
+#pragma warning disable GirCore1007
     public GskGraphWidget()
     {
         SetRequiredVersion(3, 0);
@@ -67,6 +68,7 @@ public class GskGraphWidget : GLArea
         OnUnrealize += OnUnrealize_Handler;
         OnRender += OnRender_Handler;
     }
+#pragma warning restore GirCore1007
 
     private void OnRealize_Handler(Widget sender, EventArgs e)
     {
@@ -707,7 +709,7 @@ public class GskGraphWidget : GLArea
                     cr.SetSourceRgba(1, 1, 1, 0.85 * scale);
 
                 cr.SetFontSize(10 / _zoom);
-                cr.SelectFontFace("Sans", Cairo.FontSlant.Normal, Cairo.FontWeight.Bold);
+                cr.SelectFontFace("Sans", FontSlant.Normal, FontWeight.Bold);
                 cr.TextExtents(name, out var te);
                 cr.MoveTo(pos.X - te.Width / 2, pos.Y + radius + te.Height + 5 / _zoom);
                 cr.ShowText(name);

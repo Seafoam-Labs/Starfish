@@ -1,13 +1,12 @@
-﻿using System.Runtime;
-using System.Reflection;
-using Gtk;
+﻿using Gtk;
 using Microsoft.Extensions.DependencyInjection;
-using Starfish;
 using Starfish.Constants;
 using Starfish.Helpers;
 using Starfish.Windows;
 
-sealed class Program
+namespace Starfish;
+
+internal static class Program
 {
     public static int Main(string[] args)
     {
@@ -17,7 +16,7 @@ sealed class Program
         var application = Application.New(StarfishConstants.Service, Gio.ApplicationFlags.DefaultFlags);
 
 
-        application.OnActivate += (sender, _) =>
+        application.OnActivate += (_, _) =>
         {
            
             var existingWindow = application.GetActiveWindow();
@@ -26,6 +25,10 @@ sealed class Program
                 existingWindow.Present();
                 return;
             }
+            
+            var cssProvider = CssProvider.New();
+            cssProvider.LoadFromString(ResourceHelper.LoadAsset("Assets/style.css"));
+            StyleContext.AddProviderForDisplay(Gdk.Display.GetDefault()!, cssProvider, 800);
             
             var iconTheme = IconTheme.GetForDisplay(Gdk.Display.GetDefault()!);
             iconTheme.AddSearchPath("Assets/svg");

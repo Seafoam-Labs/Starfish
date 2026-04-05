@@ -28,11 +28,11 @@ public class AlpmPackageDto
 
     public string InstallReason { get; init; } = string.Empty;
 
-    public DateTime? InstallDate { get; init; } = null;
+    public DateTime? InstallDate { get; init; }
 
-    public long DownloadSize { get; init; } = 0;
+    public long DownloadSize { get; init; }
 
-    public long InstalledSize { get; init; } = 0;
+    public long InstalledSize { get; init; }
 
     public List<string> RequiredBy { get; init; } = [];
 

@@ -179,6 +179,12 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
         return dictionary;
     }
 
+    public async Task<AlpmPackageDto?> GetPackageInfo(string packageName)
+    {
+        await InitializeAsync();
+        return _packageMap?.TryGetValue(packageName, out var package) == true ? package : null;
+    }
+
     private async Task InitializeAsync()
     {
         if (_packages != null && _installedPackages != null && _providesMap != null && _packageMap != null) return;

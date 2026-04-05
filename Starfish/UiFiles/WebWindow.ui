@@ -4,13 +4,102 @@
     <object class="GtkBox" id="WebWindow">
         <property name="orientation">vertical</property>
         <child>
+            <object class="GtkOverlay" id="graph_overlay">
+                <property name="vexpand">true</property>
+                <property name="hexpand">true</property>
+                <child>
+                    <object class="GtkDrawingArea" id="graph_canvas">
+                        <property name="hexpand">true</property>
+                        <property name="vexpand">true</property>
+                    </object>
+                </child>
+                <child type="overlay">
+                    <object class="GtkRevealer" id="package_info_revealer">
+                        <property name="transition-type">slide-up</property>
+                        <property name="reveal-child">false</property>
+                        <property name="halign">fill</property>
+                        <property name="valign">end</property>
+                        <child>
+                            <object class="GtkFrame">
+                                <style>
+                                    <class name="package-info-card"/>
+                                </style>
+                                <property name="margin-start">10</property>
+                                <property name="margin-end">10</property>
+                                <property name="margin-bottom">10</property>
+                                <child>
+                                    <object class="GtkBox">
+                                        <property name="orientation">vertical</property>
+                                        <property name="spacing">5</property>
+                                        <property name="margin-start">10</property>
+                                        <property name="margin-end">10</property>
+                                        <property name="margin-top">10</property>
+                                        <property name="margin-bottom">10</property>
+                                        <child>
+                                            <object class="GtkBox">
+                                                <property name="orientation">horizontal</property>
+                                                <child>
+                                                    <object class="GtkLabel" id="package_name_label">
+                                                        <property name="halign">start</property>
+                                                        <property name="hexpand">true</property>
+                                                        <attributes>
+                                                            <attribute name="weight" value="bold"/>
+                                                            <attribute name="scale" value="1.2"/>
+                                                        </attributes>
+                                                    </object>
+                                                </child>
+                                                <child>
+                                                    <object class="GtkButton" id="close_info_btn">
+                                                        <property name="icon-name">window-close-symbolic</property>
+                                                        <property name="halign">end</property>
+                                                    </object>
+                                                </child>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkLabel" id="package_version_label">
+                                                <property name="halign">start</property>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkLabel" id="package_description_label">
+                                                <property name="halign">start</property>
+                                                <property name="wrap">true</property>
+                                                <property name="max-width-chars">60</property>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkBox">
+                                                <property name="orientation">horizontal</property>
+                                                <property name="spacing">10</property>
+                                                <child>
+                                                    <object class="GtkLabel" id="package_size_label">
+                                                        <property name="halign">start</property>
+                                                    </object>
+                                                </child>
+                                                <child>
+                                                    <object class="GtkLabel" id="package_repo_label">
+                                                        <property name="halign">start</property>
+                                                    </object>
+                                                </child>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </child>
+                            </object>
+                        </child>
+                    </object>
+                </child>
+            </object>
+        </child>
+        <child>
             <object class="GtkBox">
                 <property name="orientation">horizontal</property>
                 <property name="spacing">10</property>
                 <property name="margin-start">10</property>
                 <property name="margin-end">10</property>
-                <property name="margin-top">5</property>
-                <property name="margin-bottom">5</property>
+                <property name="margin-top">2</property>
+                <property name="margin-bottom">2</property>
                 <child>
                     <object class="GtkCheckButton" id="performance_mode">
                         <property name="label">Performance Mode</property>
@@ -25,19 +114,12 @@
             </object>
         </child>
         <child>
-            <object class="GtkDrawingArea" id="graph_canvas">
-                <property name="hexpand">true</property>
-                <property name="vexpand">true</property>
-            </object>
-        </child>
-       
-        <child>
             <object class="GtkBox">
                 <property name="orientation">horizontal</property>
                 <property name="spacing">5</property>
                 <property name="halign">center</property>
-                <property name="margin-bottom">10</property>
-                <property name="margin-top">10</property>
+                <property name="margin-bottom">5</property>
+                <property name="margin-top">2</property>
                 <property name="margin-start">10</property>
                 <property name="margin-end">10</property>
                 <child>

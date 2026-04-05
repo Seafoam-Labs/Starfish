@@ -1,5 +1,3 @@
-using GLib;
-using Cairo;
 using Gtk;
 using Starfish.Helpers;
 using Starfish.Services;
@@ -26,10 +24,17 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
     private string? _hoverCandidate;
     private uint _hoverTimeoutId;
 
+    private Revealer _packageInfoRevealer = null!;
+    private Label _packageNameLabel = null!;
+    private Label _packageVersionLabel = null!;
+    private Label _packageDescriptionLabel = null!;
+    private Label _packageSizeLabel = null!;
+    private Label _packageRepoLabel = null!;
+
     public async Task InitializeAsync(string rootPackage, int depth)
     {
         _rootPackage = rootPackage;
-        if (_searchEntry != null && _searchEntry.GetText() != rootPackage)
+        if (_searchEntry.GetText() != rootPackage)
         {
             _searchEntry.SetText(rootPackage);
         }
@@ -107,33 +112,59 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         };
         
         var resetPan = (Button)builder.GetObject("reset_pan")!;
-        resetPan.OnClicked += (sender, args) => {
+        resetPan.OnClicked += (_, _) => {
           ResetPan();
         };
 
         var perfBtn = (CheckButton)builder.GetObject("performance_mode")!;
-        perfBtn.OnToggled += (sender, args) => {
+        perfBtn.OnToggled += (sender, _) => {
             _graphWidget.UsePerformanceShaders = sender.GetActive();
         };
 
         var lockHoverBtn = (CheckButton)builder.GetObject("lock_hover")!;
-        lockHoverBtn.OnToggled += (sender, args) => {
+        lockHoverBtn.OnToggled += (sender, _) => {
             _graphWidget.LockHover = sender.GetActive();
         };
-        
-        var oldCanvas = (Widget?)builder.GetObject("graph_canvas");
-        if (oldCanvas != null)
+
+        _packageInfoRevealer = (Revealer)builder.GetObject("package_info_revealer")!;
+        _packageNameLabel = (Label)builder.GetObject("package_name_label")!;
+        _packageVersionLabel = (Label)builder.GetObject("package_version_label")!;
+        _packageDescriptionLabel = (Label)builder.GetObject("package_description_label")!;
+        _packageSizeLabel = (Label)builder.GetObject("package_size_label")!;
+        _packageRepoLabel = (Label)builder.GetObject("package_repo_label")!;
+
+        var closeInfoBtn = (Button)builder.GetObject("close_info_btn")!;
+        closeInfoBtn.OnClicked += (_, _) =>
         {
-            _box.Remove(oldCanvas);
+            _packageInfoRevealer.SetRevealChild(false);
+        };
+        
+        var oldOverlay = (Widget?)builder.GetObject("graph_overlay");
+        var revealerParent = _packageInfoRevealer.GetParent();
+        if (revealerParent != null)
+        {
+            switch (revealerParent)
+            {
+                case Box box:
+                    box.Remove(_packageInfoRevealer);
+                    break;
+                case Overlay ov:
+                    ov.RemoveOverlay(_packageInfoRevealer);
+                    break;
+            }
+        }
+
+        if (oldOverlay != null)
+        {
+            _box.Remove(oldOverlay);
         }
         
-// with this:
         _graphWidget.SetHexpand(true);
         _graphWidget.SetVexpand(true);
 
         var labelOverlay = DrawingArea.New();
         labelOverlay.CanTarget = false;
-        labelOverlay.SetDrawFunc((area, cr, w, h) =>
+        labelOverlay.SetDrawFunc((_, cr, w, h) =>
         {
             _graphWidget.DrawLabels(cr, w, h);
         });
@@ -143,10 +174,11 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         overlay.SetVexpand(true);
         overlay.SetChild(_graphWidget);
         overlay.AddOverlay(labelOverlay);
+        overlay.AddOverlay(_packageInfoRevealer);
 
         _graphWidget.SetLabelOverlay(labelOverlay);
 
-        _box.Append(overlay);
+        _box.Prepend(overlay);
 
         var scroll = EventControllerScroll.New(EventControllerScrollFlags.Vertical);
         scroll.OnScroll += OnScroll;
@@ -254,19 +286,29 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         var name = _graphWidget.GetPackageAt(args.X, args.Y);
         if (name == null)
         {
-         
+            _packageInfoRevealer.SetRevealChild(false);
             return;
         }
      
-        OnNodeClicked(name);
+        _ = OnNodeClicked(name);
     }
     
     
-    private static void OnNodeClicked(string packageName)
+    private async Task OnNodeClicked(string packageName)
     {
-        Console.WriteLine($"Clicked: {packageName}");
+        var pkg = await packageTraversalService.GetPackageInfo(packageName);
+        if (pkg == null) return;
+
+        _packageNameLabel.SetText(pkg.Name);
+        _packageVersionLabel.SetText($"Version: {pkg.Version}");
+        _packageDescriptionLabel.SetText(pkg.Description);
+        _packageSizeLabel.SetText($"Installed Size: {SizeFormatter.FormatSize(pkg.InstalledSize)}");
+        _packageRepoLabel.SetText($"Repository: {pkg.Repository}");
+
+        _packageInfoRevealer.SetRevealChild(true);
     }
 
+    
     public void Dispose()
     {
     }

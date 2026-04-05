@@ -1,27 +1,27 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <interface>
-  <requires lib="gtk" version="4.0"/>
-  
-  <object class="GtkApplicationWindow" id="MainWindow">
-    <property name="default-height">600</property>
-    <property name="default-width">800</property>
-    <property name="title">Starfish</property>
-    <child>
-      <object class="GtkOverlay" id="MainOverlay">
-        <property name="child">
-          <object class="GtkBox" id="MainBox">
-            <property name="orientation">vertical</property>
-            
-            <child>
-              <!-- This is where different pages will be inserted -->
-              <object class="GtkBox" id="ContentArea">
-                <property name="hexpand">true</property>
-                <property name="vexpand">true</property>
-              </object>
-            </child>
-          </object>
-        </property>
-      </object>
-    </child>
-  </object>
+    <requires lib="gtk" version="4.0"/>
+
+    <object class="GtkApplicationWindow" id="MainWindow">
+        <property name="default-height">600</property>
+        <property name="default-width">800</property>
+        <property name="title">Starfish</property>
+        <child>
+            <object class="GtkOverlay" id="MainOverlay">
+                <property name="child">
+                    <object class="GtkBox" id="MainBox">
+                        <property name="orientation">vertical</property>
+
+                        <child>
+                            <!-- This is where different pages will be inserted -->
+                            <object class="GtkBox" id="ContentArea">
+                                <property name="hexpand">true</property>
+                                <property name="vexpand">true</property>
+                            </object>
+                        </child>
+                    </object>
+                </property>
+            </object>
+        </child>
+    </object>
 </interface>
