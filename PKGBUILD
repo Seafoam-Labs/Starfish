@@ -1,8 +1,8 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=starfish
-pkgver=0.0.1
-pkgrel=6
+pkgver=0.0.2
+pkgrel=1
 pkgdesc="Starfish: Arch Depdency Viewer"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Starfish"
@@ -15,13 +15,8 @@ depends=(
     'libglvnd'
     'hicolor-icon-theme'
     'glibc'
-    'openssl'
-    'zlib'
-    'krb5'
-    'icu'
-    'mesa'
 )
-makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'openssl' 'libglvnd')
+makedepends=('dotnet-sdk-10.0' 'clang')
 
 # Source tarball from GitHub release
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Seafoam-Labs/Starfish/archive/v${pkgver}.tar.gz")
@@ -30,9 +25,6 @@ sha256sums=('8b3acc13a4fc7315a3a694126da25635f173fff2e880c905759261c8afda01c3')
 
 build() {
   cd "$srcdir/Starfish-${pkgver}"
-
-  export DOTNET_CLI_TELEMETRY_OPTOUT=1
-  export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
   dotnet publish Starfish/Starfish.csproj -c Release -r linux-x64 -o out --nologo -p:InstructionSet=${INSTRUCTIONS:=x86-64}
 }
