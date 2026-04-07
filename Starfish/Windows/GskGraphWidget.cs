@@ -104,8 +104,9 @@ public class GskGraphWidget : GLArea
     {
         if (_gl is null) return false;
 
-        var w = GetAllocatedWidth();
-        var h = GetAllocatedHeight();
+        var scale = GetScaleFactor();
+        var w = GetAllocatedWidth() * scale;
+        var h = GetAllocatedHeight() * scale;
 
         _gl.Viewport(0, 0, (uint)w, (uint)h);
         _gl.ClearColor(0.15f, 0.15f, 0.15f, 1f);
@@ -531,10 +532,14 @@ public class GskGraphWidget : GLArea
 
     private System.Numerics.Matrix4x4 BuildProjection(int w, int h)
     {
-        var left = (float)(-w / 2.0 / _zoom - _panX / _zoom);
-        var right = (float)(w / 2.0 / _zoom - _panX / _zoom);
-        var bottom = (float)(h / 2.0 / _zoom - _panY / _zoom);
-        var top = (float)(-h / 2.0 / _zoom - _panY / _zoom);
+        var scale = GetScaleFactor();
+        var sw = w / (float)scale;
+        var sh = h / (float)scale;
+
+        var left = (float)(-sw / 2.0 / _zoom - _panX / _zoom);
+        var right = (float)(sw / 2.0 / _zoom - _panX / _zoom);
+        var bottom = (float)(sh / 2.0 / _zoom - _panY / _zoom);
+        var top = (float)(-sh / 2.0 / _zoom - _panY / _zoom);
 
         return System.Numerics.Matrix4x4.CreateOrthographicOffCenter(
             left, right, bottom, top, -1f, 1f);
