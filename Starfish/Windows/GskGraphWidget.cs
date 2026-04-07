@@ -73,7 +73,21 @@ public class GskGraphWidget : GLArea
     private void OnRealize_Handler(Widget sender, EventArgs e)
     {
         MakeCurrent();
-        _gl = GlLoader.GetGl();
+        try
+        {
+            _gl = GlLoader.GetGl();
+            Console.Error.WriteLine("[DEBUG_LOG] OpenGL API loaded successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DEBUG_LOG] Failed to load OpenGL API: {ex.Message}");
+            return;
+        }
+
+        var renderer = _gl.GetStringS(StringName.Renderer);
+        var version = _gl.GetStringS(StringName.Version);
+        Console.Error.WriteLine($"[DEBUG_LOG] GL Renderer: {renderer}");
+        Console.Error.WriteLine($"[DEBUG_LOG] GL Version: {version}");
 
         _gl.Enable(EnableCap.Multisample);
         _gl.Enable(EnableCap.LineSmooth);
@@ -90,8 +104,9 @@ public class GskGraphWidget : GLArea
     {
         if (_gl is null) return false;
 
-        var w = GetAllocatedWidth();
-        var h = GetAllocatedHeight();
+        var scale = GetScaleFactor();
+        var w = GetAllocatedWidth() * scale;
+        var h = GetAllocatedHeight() * scale;
 
         _gl.Viewport(0, 0, (uint)w, (uint)h);
         _gl.ClearColor(0.15f, 0.15f, 0.15f, 1f);
@@ -147,20 +162,20 @@ public class GskGraphWidget : GLArea
         gl.ShaderSource(vert, vertSrc);
         gl.CompileShader(vert);
         gl.GetShader(vert, ShaderParameterName.CompileStatus, out var vOk);
-        if (vOk == 0) Console.WriteLine($"Vert error: {gl.GetShaderInfoLog(vert)}");
+        if (vOk == 0) Console.Error.WriteLine($"[DEBUG_LOG] Vert error: {gl.GetShaderInfoLog(vert)}");
 
         var frag = gl.CreateShader(ShaderType.FragmentShader);
         gl.ShaderSource(frag, fragSrc);
         gl.CompileShader(frag);
         gl.GetShader(frag, ShaderParameterName.CompileStatus, out var fOk);
-        if (fOk == 0) Console.WriteLine($"Frag error: {gl.GetShaderInfoLog(frag)}");
+        if (fOk == 0) Console.Error.WriteLine($"[DEBUG_LOG] Frag error: {gl.GetShaderInfoLog(frag)}");
 
         var prog = gl.CreateProgram();
         gl.AttachShader(prog, vert);
         gl.AttachShader(prog, frag);
         gl.LinkProgram(prog);
         gl.GetProgram(prog, ProgramPropertyARB.LinkStatus, out var lOk);
-        if (lOk == 0) Console.WriteLine($"Link error: {gl.GetProgramInfoLog(prog)}");
+        if (lOk == 0) Console.Error.WriteLine($"[DEBUG_LOG] Link error: {gl.GetProgramInfoLog(prog)}");
 
         gl.DeleteShader(vert);
         gl.DeleteShader(frag);
@@ -517,10 +532,14 @@ public class GskGraphWidget : GLArea
 
     private System.Numerics.Matrix4x4 BuildProjection(int w, int h)
     {
-        var left = (float)(-w / 2.0 / _zoom - _panX / _zoom);
-        var right = (float)(w / 2.0 / _zoom - _panX / _zoom);
-        var bottom = (float)(h / 2.0 / _zoom - _panY / _zoom);
-        var top = (float)(-h / 2.0 / _zoom - _panY / _zoom);
+        var scale = GetScaleFactor();
+        var sw = w / (float)scale;
+        var sh = h / (float)scale;
+
+        var left = (float)(-sw / 2.0 / _zoom - _panX / _zoom);
+        var right = (float)(sw / 2.0 / _zoom - _panX / _zoom);
+        var bottom = (float)(sh / 2.0 / _zoom - _panY / _zoom);
+        var top = (float)(-sh / 2.0 / _zoom - _panY / _zoom);
 
         return System.Numerics.Matrix4x4.CreateOrthographicOffCenter(
             left, right, bottom, top, -1f, 1f);

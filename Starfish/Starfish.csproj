@@ -16,9 +16,9 @@
         <OptimizationPreference>Speed</OptimizationPreference>
     </PropertyGroup>
     <PropertyGroup>
-        <Version>0.0.1</Version>
+        <Version>0.0.2</Version>
         <AssemblyName>starfish-ui</AssemblyName>
-        <AssemblyVersion>0.0.1</AssemblyVersion>
+        <AssemblyVersion>0.0.2</AssemblyVersion>
         <AssemblyTitle>Starfish GTK UI</AssemblyTitle>
         <Description>Starfish is an arch linux package dependency viewer</Description>
         <Company>Seafoam Labs</Company>
