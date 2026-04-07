@@ -3,7 +3,8 @@ namespace Starfish.Constants;
 public static class ShaderConstants
 {
     public const string NodeVert = """
-                                   #version 330 core
+                                   #version 300 es
+                                   precision highp float;
                                    layout(location = 0) in vec2 aQuadPos;    // unit quad vertex (-1..1)
                                    layout(location = 1) in vec2 iPos;         // instance: world position
                                    layout(location = 2) in float iRadius;     // instance: radius
@@ -29,7 +30,8 @@ public static class ShaderConstants
                                    """;
 
     public const string NodeFragPerformance = """
-                                             #version 330 core
+                                             #version 300 es
+                                             precision highp float;
                                              in vec2 vUV;
                                              in vec3 vColor;
                                              in float vGlow;
@@ -50,7 +52,8 @@ public static class ShaderConstants
                                              """;
 
     public const string NodeFrag = """
-                                   #version 330 core
+                                   #version 300 es
+                                   precision highp float;
                                    in vec2 vUV;
                                    in vec3 vColor;
                                    in float vGlow;
@@ -90,7 +93,8 @@ public static class ShaderConstants
                                    """;
 
     public const string EdgeVert = """
-                                   #version 330 core
+                                   #version 300 es
+                                   precision highp float;
                                    layout(location = 0) in vec2 aPos;
                                    layout(location = 1) in vec4 aColor;
                                    layout(location = 2) in float aT;
@@ -112,7 +116,8 @@ public static class ShaderConstants
                                    """;
 
     public const string EdgeFragPerformance = """
-                                             #version 330 core
+                                             #version 300 es
+                                             precision highp float;
                                              in vec4 vColor;
                                              in float vT;
                                              in float vSide;
@@ -128,7 +133,8 @@ public static class ShaderConstants
                                              """;
 
     public const string EdgeFrag = """
-                                   #version 330 core
+                                   #version 300 es
+                                   precision highp float;
                                    in vec4 vColor;
                                    in float vT;
                                    in float vSide;
