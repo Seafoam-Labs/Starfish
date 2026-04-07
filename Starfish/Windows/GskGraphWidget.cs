@@ -73,7 +73,21 @@ public class GskGraphWidget : GLArea
     private void OnRealize_Handler(Widget sender, EventArgs e)
     {
         MakeCurrent();
-        _gl = GlLoader.GetGl();
+        try
+        {
+            _gl = GlLoader.GetGl();
+            Console.Error.WriteLine("[DEBUG_LOG] OpenGL API loaded successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DEBUG_LOG] Failed to load OpenGL API: {ex.Message}");
+            return;
+        }
+
+        var renderer = _gl.GetStringS(StringName.Renderer);
+        var version = _gl.GetStringS(StringName.Version);
+        Console.Error.WriteLine($"[DEBUG_LOG] GL Renderer: {renderer}");
+        Console.Error.WriteLine($"[DEBUG_LOG] GL Version: {version}");
 
         _gl.Enable(EnableCap.Multisample);
         _gl.Enable(EnableCap.LineSmooth);
@@ -147,20 +161,20 @@ public class GskGraphWidget : GLArea
         gl.ShaderSource(vert, vertSrc);
         gl.CompileShader(vert);
         gl.GetShader(vert, ShaderParameterName.CompileStatus, out var vOk);
-        if (vOk == 0) Console.WriteLine($"Vert error: {gl.GetShaderInfoLog(vert)}");
+        if (vOk == 0) Console.Error.WriteLine($"[DEBUG_LOG] Vert error: {gl.GetShaderInfoLog(vert)}");
 
         var frag = gl.CreateShader(ShaderType.FragmentShader);
         gl.ShaderSource(frag, fragSrc);
         gl.CompileShader(frag);
         gl.GetShader(frag, ShaderParameterName.CompileStatus, out var fOk);
-        if (fOk == 0) Console.WriteLine($"Frag error: {gl.GetShaderInfoLog(frag)}");
+        if (fOk == 0) Console.Error.WriteLine($"[DEBUG_LOG] Frag error: {gl.GetShaderInfoLog(frag)}");
 
         var prog = gl.CreateProgram();
         gl.AttachShader(prog, vert);
         gl.AttachShader(prog, frag);
         gl.LinkProgram(prog);
         gl.GetProgram(prog, ProgramPropertyARB.LinkStatus, out var lOk);
-        if (lOk == 0) Console.WriteLine($"Link error: {gl.GetProgramInfoLog(prog)}");
+        if (lOk == 0) Console.Error.WriteLine($"[DEBUG_LOG] Link error: {gl.GetProgramInfoLog(prog)}");
 
         gl.DeleteShader(vert);
         gl.DeleteShader(frag);
