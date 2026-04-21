@@ -185,6 +185,12 @@ public class PackageTraversalService(IUnprivilegedOperationService unprivilegedO
         return _packageMap?.TryGetValue(packageName, out var package) == true ? package : null;
     }
 
+    public async Task<List<string>> GetAllPackageNames()
+    {
+        await InitializeAsync();
+        return _packageMap?.Keys.OrderBy(x => x).ToList() ?? [];
+    }
+
     private async Task InitializeAsync()
     {
         if (_packages != null && _installedPackages != null && _providesMap != null && _packageMap != null) return;

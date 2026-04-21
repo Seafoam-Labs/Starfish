@@ -13,4 +13,5 @@ public interface IPackageTraversalService
     Task<Dictionary<string, List<string>>> FetchInverseFullDependencyPackageInformationInstalled(string rootPackageName, int depth = 0);
     
     Task<AlpmPackageDto?> GetPackageInfo(string packageName);
+    Task<List<string>> GetAllPackageNames();
 }

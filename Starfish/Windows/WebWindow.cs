@@ -30,6 +30,9 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
     private Label _packageDescriptionLabel = null!;
     private Label _packageSizeLabel = null!;
     private Label _packageRepoLabel = null!;
+    private FlowBox _suggestionsFlowBox = null!;
+    private Popover _suggestionsPopover = null!;
+    private List<string> _allPackageNames = [];
 
     public async Task InitializeAsync(string rootPackage, int depth)
     {
@@ -62,6 +65,13 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         _box = (Box)builder.GetObject("WebWindow")!;
         
         _searchEntry = (Entry)builder.GetObject("search_entry")!;
+        _suggestionsFlowBox = (FlowBox)builder.GetObject("suggestions_flowbox")!;
+        _suggestionsPopover = (Popover)builder.GetObject("suggestions_popover")!;
+
+        _searchEntry.OnChanged += (_, _) => {
+            UpdateSuggestions();
+        };
+
         _searchEntry.OnActivate += (sender, args) => {
             var pkg = _searchEntry.GetText();
             if (!string.IsNullOrWhiteSpace(pkg))
@@ -200,7 +210,59 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         motion.OnLeave += OnLeave;
         _graphWidget.AddController(motion);
         
+        _ = Task.Run(async () =>
+        {
+            _allPackageNames = await packageTraversalService.GetAllPackageNames();
+        });
+
         return _box;
+    }
+
+    private void UpdateSuggestions()
+    {
+        var searchText = _searchEntry.GetText().Trim();
+
+
+        while (_suggestionsFlowBox.GetFirstChild() is { } child)
+        {
+            _suggestionsFlowBox.Remove(child);
+        }
+
+        if (string.IsNullOrWhiteSpace(searchText) || searchText.Length < 2)
+        {
+            _suggestionsPopover.Popdown();
+            return;
+        }
+
+        var matches = _allPackageNames
+            .Where(name => name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+            .Take(20)
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            _suggestionsPopover.Popdown();
+            return;
+        }
+
+        foreach (var match in matches)
+        {
+            var button = Button.NewWithLabel(match);
+            button.SetHasFrame(false);
+            button.AddCssClass("suggest-chip");
+            
+            var capturedMatch = match;
+            button.OnClicked += (sender, args) =>
+            {
+                _searchEntry.SetText(capturedMatch);
+                _suggestionsPopover.Popdown();
+                _ = InitializeAsync(capturedMatch, (int)_depthSpinner.GetValue());
+            };
+            
+            _suggestionsFlowBox.Append(button);
+        }
+
+        _suggestionsPopover.Popup();
     }
 
     private void OnMotion(EventControllerMotion sender, EventControllerMotion.MotionSignalArgs args)
@@ -287,9 +349,11 @@ public class WebWindow(IPackageTraversalService packageTraversalService)
         if (name == null)
         {
             _packageInfoRevealer.SetRevealChild(false);
+            _graphWidget.SetSelectedNode(null);
             return;
         }
      
+        _graphWidget.SetSelectedNode(name);
         _ = OnNodeClicked(name);
     }
     

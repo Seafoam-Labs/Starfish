@@ -32,6 +32,8 @@ public class GskGraphWidget : GLArea
     private DrawingArea? _labelOverlay;
     private readonly DateTime _startTime = DateTime.UtcNow;
 
+    private float _bgR = 0.0f, _bgG = 0.0f, _bgB = 0.0f, _bgA = 1.0f;
+
     private float[] _nodeInstanceData = new float[1024 * 7];
     private float[] _edgeVertexData = new float[4096 * 8];
     private uint[] _edgeIndexData = new uint[4096 * 2];
@@ -133,7 +135,7 @@ public class GskGraphWidget : GLArea
         var h = GetAllocatedHeight() * scale;
 
         _gl.Viewport(0, 0, (uint)w, (uint)h);
-        _gl.ClearColor(0.15f, 0.15f, 0.15f, 1f);
+        _gl.ClearColor(_bgR, _bgG, _bgB, _bgA);
         _gl.Clear(ClearBufferMask.ColorBufferBit);
 
         var time = (float)(DateTime.UtcNow - _startTime).TotalSeconds;
@@ -473,15 +475,17 @@ public class GskGraphWidget : GLArea
                 }
                 else if (isSelected)
                 {
-                    r = 1f;
-                    g = 1f;
-                    b = 0.8f;
+                    var color = GetThemeColor("accent_color", new Gdk.RGBA { Red = 1f, Green = 1f, Blue = 0.8f, Alpha = 1 });
+                    r = (float)color.Red;
+                    g = (float)color.Green;
+                    b = (float)color.Blue;
                 }
                 else if (isHovered)
                 {
-                    r = 0.6f;
-                    g = 0.9f;
-                    b = 1f;
+                    var color = GetThemeColor("accent_color", new Gdk.RGBA { Red = 0.6f, Green = 0.9f, Blue = 1f, Alpha = 1 });
+                    r = (float)color.Red;
+                    g = (float)color.Green;
+                    b = (float)color.Blue;
                 }
                 else
                 {
@@ -634,6 +638,20 @@ public class GskGraphWidget : GLArea
         lock (_lock) return _hoverNode;
     }
 
+    public void SetSelectedNode(string? packageName)
+    {
+        lock (_lock)
+        {
+            _foregroundNodes.Clear();
+            if (packageName != null)
+            {
+                _foregroundNodes.Add(packageName);
+            }
+        }
+        QueueDraw();
+        _labelOverlay?.QueueDraw();
+    }
+
     public void SetHoverNode(string? packageName)
     {
         lock (_lock)
@@ -728,8 +746,16 @@ public class GskGraphWidget : GLArea
 
                 cr.NewPath();
 
-                if (isSelected) cr.SetSourceRgba(1, 1, 0.4, 1);
-                else if (isHovered) cr.SetSourceRgba(0.4, 0.8, 1, 1);
+                if (isSelected)
+                {
+                    var color = GetThemeColor("accent_color", new Gdk.RGBA { Red = 1, Green = 1, Blue = 0.4f, Alpha = 1 });
+                    cr.SetSourceRgba(color.Red, color.Green, color.Blue, 1);
+                }
+                else if (isHovered)
+                {
+                    var color = GetThemeColor("accent_color", new Gdk.RGBA { Red = 0.4f, Green = 0.8f, Blue = 1, Alpha = 1 });
+                    cr.SetSourceRgba(color.Red, color.Green, color.Blue, 0.8);
+                }
                 else if (isDimmed) cr.SetSourceRgba(1, 1, 1, 0.25 * scale);
                 else cr.SetSourceRgba(1, 1, 1, 0.85 * scale);
 
@@ -740,6 +766,22 @@ public class GskGraphWidget : GLArea
                 cr.ShowText(name);
             }
         }
+    }
+
+    private Gdk.RGBA GetThemeColor(string name, Gdk.RGBA fallback)
+    {
+        try
+        {
+            if (GetStyleContext().LookupColor(name, out var color))
+            {
+                return color;
+            }
+        }
+        catch
+        {
+            // Ignore
+        }
+        return fallback;
     }
 
     private void CalculateInitialLayout()
