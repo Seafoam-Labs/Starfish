@@ -4,6 +4,7 @@ using Graphene;
 using Silk.NET.OpenGL;
 using Starfish.Constants;
 using Starfish.References;
+using Starfish.Services;
 
 namespace Starfish.Windows;
 
@@ -36,6 +37,29 @@ public class GskGraphWidget : GLArea
     private uint[] _edgeIndexData = new uint[4096 * 2];
 
     private readonly Dictionary<string, float> _nodeScales = new();
+    
+    private static readonly (double R, double G, double B)[] LevelColors =
+    [
+        (0.35, 0.45, 0.85),
+        (0.15, 0.70, 0.60),
+        (0.95, 0.45, 0.55),
+        (0.60, 0.40, 0.80),
+        (0.90, 0.65, 0.20),
+        (0.40, 0.65, 0.85),
+        (0.55, 0.70, 0.35),
+        (0.85, 0.55, 0.40),
+    ];
+    
+    private HashSet<string> _highlightedCache = [];
+    private string? _lastHighlightSelected;
+    private string? _lastHighlightHover;
+    
+    private int[] _cachedDegrees = [];
+    private List<int>[] _cachedAdjacencyList = [];
+    private List<string> _cachedNodes = [];
+    private Dictionary<string, int> _cachedNodeToIndex = new();
+    private int _cachedRootIndex = -1;
+    private bool _graphCacheDirty = true;
 
     public bool UsePerformanceShaders
     {
@@ -145,7 +169,6 @@ public class GskGraphWidget : GLArea
         _labelOverlay = overlay;
     }
 
-
     private void SetupShaders()
     {
         _nodeShader = CreateShaderProgram(ShaderConstants.NodeVert, ShaderConstants.NodeFrag);
@@ -200,7 +223,6 @@ public class GskGraphWidget : GLArea
         _nodeVao = gl.GenVertexArray();
         gl.BindVertexArray(_nodeVao);
 
-        // Quad vertices (loc 0)
         _nodeVbo = gl.GenBuffer();
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _nodeVbo);
         fixed (float* p = quad)
@@ -209,30 +231,28 @@ public class GskGraphWidget : GLArea
         gl.EnableVertexAttribArray(0);
         gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 8, (void*)0);
 
-        // Layout per instance: x, y, radius, r, g, b, glow = 7 floats
         _instanceVbo = gl.GenBuffer();
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
         gl.BufferData(BufferTargetARB.ArrayBuffer, 0, null, BufferUsageARB.DynamicDraw);
 
         gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 28, (void*)0); // pos
+        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 28, (void*)0);
         gl.VertexAttribDivisor(1, 1);
 
         gl.EnableVertexAttribArray(2);
-        gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, 28, (void*)8); // radius
+        gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, 28, (void*)8);
         gl.VertexAttribDivisor(2, 1);
 
         gl.EnableVertexAttribArray(3);
-        gl.VertexAttribPointer(3, 3, VertexAttribPointerType.Float, false, 28, (void*)12); // color
+        gl.VertexAttribPointer(3, 3, VertexAttribPointerType.Float, false, 28, (void*)12);
         gl.VertexAttribDivisor(3, 1);
 
         gl.EnableVertexAttribArray(4);
-        gl.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false, 28, (void*)24); // glow
+        gl.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false, 28, (void*)24);
         gl.VertexAttribDivisor(4, 1);
 
         gl.BindVertexArray(0);
 
-        // Edge buffer — layout per vertex: x, y, r, g, b, a, t, side = 8 floats
         _edgeVao = gl.GenVertexArray();
         gl.BindVertexArray(_edgeVao);
 
@@ -245,13 +265,13 @@ public class GskGraphWidget : GLArea
         gl.BufferData(BufferTargetARB.ElementArrayBuffer, 0, null, BufferUsageARB.DynamicDraw);
 
         gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 32, (void*)0); // pos
+        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 32, (void*)0);
         gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 32, (void*)8); // color
+        gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 32, (void*)8);
         gl.EnableVertexAttribArray(2);
-        gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, 32, (void*)24); // t
+        gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, 32, (void*)24);
         gl.EnableVertexAttribArray(3);
-        gl.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false, 32, (void*)28); // side
+        gl.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false, 32, (void*)28);
 
         gl.BindVertexArray(0);
     }
@@ -264,22 +284,10 @@ public class GskGraphWidget : GLArea
         var vertIdx = 0;
         var indexIdx = 0;
 
-        (double R, double G, double B)[] levelColors =
-        [
-            (0.35, 0.45, 0.85), 
-            (0.15, 0.70, 0.60), 
-            (0.95, 0.45, 0.55), 
-            (0.60, 0.40, 0.80), 
-            (0.90, 0.65, 0.20), 
-            (0.40, 0.65, 0.85), 
-            (0.55, 0.70, 0.35), 
-            (0.85, 0.55, 0.40), 
-        ];
-
         lock (_lock)
         {
             var selectedNode = _foregroundNodes.FirstOrDefault();
-            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var highlighted = GetHighlighted(selectedNode, _hoverNode);
             var hasFg = (selectedNode ?? _hoverNode) != null;
 
             foreach (var (package, deps) in _dependencyMap)
@@ -288,7 +296,7 @@ public class GskGraphWidget : GLArea
                 var isNodeHighlighted = highlighted.Contains(package);
 
                 var fromLevel = _levels.GetValueOrDefault(package, 0);
-                var fromC = levelColors[Math.Min(fromLevel, levelColors.Length - 1)];
+                var fromC = LevelColors[Math.Min(fromLevel, LevelColors.Length - 1)];
 
                 foreach (var dep in deps)
                 {
@@ -296,13 +304,15 @@ public class GskGraphWidget : GLArea
                     var isEdgeHighlighted = isNodeHighlighted && highlighted.Contains(dep);
 
                     var toLevel = _levels.GetValueOrDefault(dep, 0);
-                    var toC = levelColors[Math.Min(toLevel, levelColors.Length - 1)];
+                    var toC = LevelColors[Math.Min(toLevel, LevelColors.Length - 1)];
 
                     var bA = hasFg ? (isEdgeHighlighted ? 1.0f : 0.08f) : 0.25f;
 
                     var fromScale = _nodeScales.GetValueOrDefault(package, 1f);
                     var toScale = _nodeScales.GetValueOrDefault(dep, 1f);
-                    AddCurvedEdge(ref vertIdx, ref indexIdx, fromPos.X, fromPos.Y, toPos.X, toPos.Y, 22f * fromScale, 22f * toScale,
+                    AddCurvedEdge(ref vertIdx, ref indexIdx,
+                        fromPos.X, fromPos.Y, toPos.X, toPos.Y,
+                        22f * fromScale, 22f * toScale,
                         (float)fromC.R, (float)fromC.G, (float)fromC.B, bA,
                         (float)toC.R, (float)toC.G, (float)toC.B, bA);
                 }
@@ -318,7 +328,7 @@ public class GskGraphWidget : GLArea
             gl.Uniform1(gl.GetUniformLocation(shader, "uTime"), time);
 
         gl.BindVertexArray(_edgeVao);
-        
+
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, _edgeVbo);
         fixed (float* p = _edgeVertexData)
             gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(vertIdx * 4),
@@ -330,13 +340,15 @@ public class GskGraphWidget : GLArea
                 p, BufferUsageARB.StreamDraw);
 
         gl.Enable(EnableCap.Blend);
-        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); // Additive-ish for glow
+        gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
         gl.DrawElements(PrimitiveType.Triangles, (uint)indexIdx, DrawElementsType.UnsignedInt, (void*)0);
         gl.BindVertexArray(0);
     }
 
-    private void AddCurvedEdge(ref int vertIdx, ref int indexIdx, float x1, float y1, float x2, float y2, float r1, float r2,
-        float r1C, float g1C, float b1C, float a1C, float r2C, float g2C, float b2C, float a2C)
+    private void AddCurvedEdge(ref int vertIdx, ref int indexIdx,
+        float x1, float y1, float x2, float y2, float r1, float r2,
+        float r1C, float g1C, float b1C, float a1C,
+        float r2C, float g2C, float b2C, float a2C)
     {
         var dx = x2 - x1;
         var dy = y2 - y1;
@@ -356,14 +368,18 @@ public class GskGraphWidget : GLArea
         var cy = (sy + ey) / 2f - (ex - sx) * 0.15f;
 
         const int segments = 7;
-        
+
         var perpX = -(ey - sy);
         var perpY = ex - sx;
         var pLen = (float)Math.Sqrt(perpX * perpX + perpY * perpY);
-        if (pLen > 0.0001f) { perpX /= pLen; perpY /= pLen; }
+        if (pLen > 0.0001f)
+        {
+            perpX /= pLen;
+            perpY /= pLen;
+        }
 
         const float thickness = 2.0f;
-        
+
         var requiredVerts = vertIdx + (segments + 1) * 2 * 8;
         if (requiredVerts > _edgeVertexData.Length)
             Array.Resize(ref _edgeVertexData, Math.Max(_edgeVertexData.Length * 2, requiredVerts));
@@ -378,8 +394,7 @@ public class GskGraphWidget : GLArea
         {
             var t = i / (float)segments;
             var omt = 1f - t;
-            
-            // Quadratic Bezier
+
             var vx = omt * omt * sx + 2f * omt * t * cx + t * t * ex;
             var vy = omt * omt * sy + 2f * omt * t * cy + t * t * ey;
 
@@ -388,7 +403,6 @@ public class GskGraphWidget : GLArea
             var b = b1C * omt + b2C * t;
             var a = a1C * omt + a2C * t;
 
-            // Lower vertex (side -1)
             _edgeVertexData[vertIdx++] = vx - perpX * thickness;
             _edgeVertexData[vertIdx++] = vy - perpY * thickness;
             _edgeVertexData[vertIdx++] = r;
@@ -398,7 +412,6 @@ public class GskGraphWidget : GLArea
             _edgeVertexData[vertIdx++] = t;
             _edgeVertexData[vertIdx++] = -1f;
 
-            // Upper vertex (side 1)
             _edgeVertexData[vertIdx++] = vx + perpX * thickness;
             _edgeVertexData[vertIdx++] = vy + perpY * thickness;
             _edgeVertexData[vertIdx++] = r;
@@ -428,25 +441,13 @@ public class GskGraphWidget : GLArea
         var gl = _gl!;
         var proj = BuildProjection(w, h);
 
-        (double R, double G, double B)[] levelColors =
-        [
-            (0.35, 0.45, 0.85),
-            (0.15, 0.70, 0.60),
-            (0.95, 0.45, 0.55), 
-            (0.60, 0.40, 0.80), 
-            (0.90, 0.65, 0.20), 
-            (0.40, 0.65, 0.85), 
-            (0.55, 0.70, 0.35), 
-            (0.85, 0.55, 0.40), 
-        ];
-
         var instances = _nodeInstanceData;
         var instanceIdx = 0;
 
         lock (_lock)
         {
             var selectedNode = _foregroundNodes.FirstOrDefault();
-            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var highlighted = GetHighlighted(selectedNode, _hoverNode);
             var hasFg = (selectedNode ?? _hoverNode) != null;
 
             if (_positions.Count * 7 > instances.Length)
@@ -456,7 +457,7 @@ public class GskGraphWidget : GLArea
             foreach (var (name, pos) in _positions)
             {
                 var level = _levels.GetValueOrDefault(name, 0);
-                var c = levelColors[Math.Min(level, levelColors.Length - 1)];
+                var c = LevelColors[Math.Min(level, LevelColors.Length - 1)];
 
                 var isDimmed = hasFg && !highlighted.Contains(name);
                 var isSelected = name == selectedNode;
@@ -493,7 +494,6 @@ public class GskGraphWidget : GLArea
                 var scale = _nodeScales.GetValueOrDefault(name, 1f);
                 var radius = 22f * scale;
 
-                // x, y, radius, r, g, b, glow
                 instances[instanceIdx++] = pos.X;
                 instances[instanceIdx++] = pos.Y;
                 instances[instanceIdx++] = radius;
@@ -519,10 +519,8 @@ public class GskGraphWidget : GLArea
                 p, BufferUsageARB.StreamDraw);
 
         gl.Enable(EnableCap.Blend);
-
         gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
         gl.DrawArraysInstanced(PrimitiveType.Triangles, 0, 6, count);
-
 
         gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         gl.DrawArraysInstanced(PrimitiveType.Triangles, 0, 6, count);
@@ -551,7 +549,18 @@ public class GskGraphWidget : GLArea
         var m = mat;
         _gl.UniformMatrix4(loc, 1, false, (float*)&m);
     }
+    
+    private HashSet<string> GetHighlighted(string? selectedNode, string? hoverNode)
+    {
+        if (selectedNode == _lastHighlightSelected && hoverNode == _lastHighlightHover)
+            return _highlightedCache;
 
+        _highlightedCache = BuildHighlighted(selectedNode, hoverNode);
+        _lastHighlightSelected = selectedNode;
+        _lastHighlightHover = hoverNode;
+        return _highlightedCache;
+    }
+    
     private HashSet<string> BuildHighlighted(string? selectedNode, string? hoverNode)
     {
         HashSet<string> highlighted = [];
@@ -593,7 +602,7 @@ public class GskGraphWidget : GLArea
         lock (_lock)
         {
             var selectedNode = _foregroundNodes.FirstOrDefault();
-            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var highlighted = GetHighlighted(selectedNode, _hoverNode);
             const float speed = 0.12f;
 
             foreach (var name in _positions.Keys)
@@ -610,7 +619,7 @@ public class GskGraphWidget : GLArea
         lock (_lock)
         {
             var selectedNode = _foregroundNodes.FirstOrDefault();
-            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var highlighted = GetHighlighted(selectedNode, _hoverNode);
 
             return (from name in _positions.Keys
                 let current = _nodeScales.GetValueOrDefault(name, 1f)
@@ -644,6 +653,7 @@ public class GskGraphWidget : GLArea
         {
             _rootPackage = rootPackage;
             _dependencyMap = dependencyMap;
+            _graphCacheDirty = true;
             CalculateInitialLayout();
             RunSimulationStepForceAtlas2(150);
         }
@@ -701,7 +711,7 @@ public class GskGraphWidget : GLArea
 
             var selectedNode = _foregroundNodes.FirstOrDefault();
             var hasFg = (selectedNode ?? _hoverNode) != null;
-            var highlighted = BuildHighlighted(selectedNode, _hoverNode);
+            var highlighted = GetHighlighted(selectedNode, _hoverNode);
 
             const float radius = 22f;
 
@@ -718,14 +728,10 @@ public class GskGraphWidget : GLArea
 
                 cr.NewPath();
 
-                if (isSelected)
-                    cr.SetSourceRgba(1, 1, 0.4, 1);
-                else if (isHovered)
-                    cr.SetSourceRgba(0.4, 0.8, 1, 1);
-                else if (isDimmed)
-                    cr.SetSourceRgba(1, 1, 1, 0.25 * scale);
-                else
-                    cr.SetSourceRgba(1, 1, 1, 0.85 * scale);
+                if (isSelected) cr.SetSourceRgba(1, 1, 0.4, 1);
+                else if (isHovered) cr.SetSourceRgba(0.4, 0.8, 1, 1);
+                else if (isDimmed) cr.SetSourceRgba(1, 1, 1, 0.25 * scale);
+                else cr.SetSourceRgba(1, 1, 1, 0.85 * scale);
 
                 cr.SetFontSize(10 / _zoom);
                 cr.SelectFontFace("Sans", FontSlant.Normal, FontWeight.Bold);
@@ -819,28 +825,20 @@ public class GskGraphWidget : GLArea
         }
     }
 
-    private void RunSimulationStepForceAtlas2(int iterations)
+    private void RebuildGraphCache()
     {
-        if (_positions.Count == 0) return;
-
-        const float kR = 600f; // Repulsion constant
-        const float kA = 0.5f; // Attraction constant
-        const float kG = 0.2f; // Gravity constant
-        const float damping = 0.8f;
-        const float timeStep = 0.2f;
-        const float maxForce = 50f;
-        var random = new Random();
-
         var nodes = _positions.Keys.ToList();
-        var nodeToIndex = new Dictionary<string, int>();
-        for (var i = 0; i < nodes.Count; i++) nodeToIndex[nodes[i]] = i;
+        var n = nodes.Count;
+        var nodeToIndex = new Dictionary<string, int>(n);
+        for (var i = 0; i < n; i++) nodeToIndex[nodes[i]] = i;
 
         var rootIndex = -1;
-        if (!string.IsNullOrEmpty(_rootPackage)) nodeToIndex.TryGetValue(_rootPackage, out rootIndex);
+        if (!string.IsNullOrEmpty(_rootPackage))
+            nodeToIndex.TryGetValue(_rootPackage, out rootIndex);
 
-        var degrees = new int[nodes.Count];
-        var adjacencyList = new List<int>[nodes.Count];
-        for (var i = 0; i < nodes.Count; i++) adjacencyList[i] = [];
+        var degrees = new int[n];
+        var adjacencyList = new List<int>[n];
+        for (var i = 0; i < n; i++) adjacencyList[i] = [];
 
         foreach (var (parent, deps) in _dependencyMap)
         {
@@ -854,12 +852,39 @@ public class GskGraphWidget : GLArea
             }
         }
 
-        var px = new float[nodes.Count];
-        var py = new float[nodes.Count];
-        var vx = new float[nodes.Count];
-        var vy = new float[nodes.Count];
+        _cachedNodes = nodes;
+        _cachedNodeToIndex = nodeToIndex;
+        _cachedDegrees = degrees;
+        _cachedAdjacencyList = adjacencyList;
+        _cachedRootIndex = rootIndex;
+        _graphCacheDirty = false;
+    }
 
-        for (var i = 0; i < nodes.Count; i++)
+    private void RunSimulationStepForceAtlas2(int iterations)
+    {
+        if (_positions.Count == 0) return;
+
+        const float kR = 600f;
+        const float kA = 0.5f;
+        const float kG = 0.2f;
+        const float damping = 0.8f;
+        const float timeStep = 0.2f;
+        const float maxForce = 50f;
+        const float thetaSq = 1.2f * 1.2f;
+
+        if (_graphCacheDirty) RebuildGraphCache();
+
+        var nodes = _cachedNodes;
+        var degrees = _cachedDegrees;
+        var adjacencyList = _cachedAdjacencyList;
+        var rootIndex = _cachedRootIndex;
+        var n = nodes.Count;
+
+        var px = new float[n];
+        var py = new float[n];
+        var vx = new float[n];
+        var vy = new float[n];
+        for (var i = 0; i < n; i++)
         {
             var p = _positions[nodes[i]];
             var v = _velocities[nodes[i]];
@@ -870,46 +895,46 @@ public class GskGraphWidget : GLArea
         }
 
         var hasForeground = _foregroundNodes.Count > 0;
+        var fx = new float[n];
+        var fy = new float[n];
+        
+        var traversalStack = new Stack<QuadTree>(64);
+        var insertStack = new Stack<(float x, float y, float mass, int index, QuadTree node)>(16);
 
         for (var it = 0; it < iterations; it++)
         {
-            var fx = new float[nodes.Count];
-            var fy = new float[nodes.Count];
+            Array.Clear(fx, 0, n);
+            Array.Clear(fy, 0, n);
+            
+            var minX = float.MaxValue;
+            var maxX = float.MinValue;
+            var minY = float.MaxValue;
+            var maxY = float.MinValue;
+            for (var i = 0; i < n; i++)
+            {
+                if (px[i] < minX) minX = px[i];
+                if (px[i] > maxX) maxX = px[i];
+                if (py[i] < minY) minY = py[i];
+                if (py[i] > maxY) maxY = py[i];
+            }
+
+            var pad = MathF.Max(maxX - minX, maxY - minY) * 0.05f + 1f;
+            var tree = new QuadTree(minX - pad, minY - pad, maxX + pad, maxY + pad);
+            for (var i = 0; i < n; i++)
+                tree.Insert(px[i], py[i], degrees[i] + 1, i, insertStack);
 
             // Repulsion
-            for (var i = 0; i < nodes.Count; i++)
+            for (var i = 0; i < n; i++)
             {
-                var xA = px[i];
-                var yA = py[i];
-                var degA = degrees[i];
-
-                for (var j = i + 1; j < nodes.Count; j++)
-                {
-                    var dx = xA - px[j];
-                    var dy = yA - py[j];
-                    var distSq = dx * dx + dy * dy;
-
-                    if (distSq < 1.0f)
-                    {
-                        dx = (float)(random.NextDouble() - 0.5);
-                        dy = (float)(random.NextDouble() - 0.5);
-                        distSq = dx * dx + dy * dy + 0.1f;
-                    }
-
-                    var dist = MathF.Sqrt(distSq);
-                    var force = Math.Min(kR * (degA + 1) * (degrees[j] + 1) / dist, maxForce * 2);
-                    var dfx = (dx / dist) * force;
-                    var dfy = (dy / dist) * force;
-
-                    fx[i] += dfx;
-                    fy[i] += dfy;
-                    fx[j] -= dfx;
-                    fy[j] -= dfy;
-                }
+                float rfx = 0f, rfy = 0f;
+                tree.AccumulateRepulsion(i, px[i], py[i], degrees[i] + 1,
+                    kR, thetaSq, ref rfx, ref rfy, Random.Shared, traversalStack);
+                fx[i] += rfx;
+                fy[i] += rfy;
             }
 
             // Attraction
-            for (var u = 0; u < nodes.Count; u++)
+            for (var u = 0; u < n; u++)
             {
                 var xU = px[u];
                 var yU = py[u];
@@ -918,12 +943,10 @@ public class GskGraphWidget : GLArea
                     var dx = px[v] - xU;
                     var dy = py[v] - yU;
                     var distSq = dx * dx + dy * dy + 0.01f;
-                    var dist = MathF.Sqrt(distSq);
-
-                    var force = kA * dist;
-                    var dfx = Math.Clamp((dx / dist) * force, -maxForce, maxForce);
-                    var dfy = Math.Clamp((dy / dist) * force, -maxForce, maxForce);
-
+                    var invDist = 1f / MathF.Sqrt(distSq);
+                    var force = kA * (1f / invDist);
+                    var dfx = Math.Clamp(dx * invDist * force, -maxForce, maxForce);
+                    var dfy = Math.Clamp(dy * invDist * force, -maxForce, maxForce);
                     fx[u] += dfx;
                     fy[u] += dfy;
                     fx[v] -= dfx;
@@ -932,37 +955,32 @@ public class GskGraphWidget : GLArea
             }
 
             // Gravity
-            for (var i = 0; i < nodes.Count; i++)
+            for (var i = 0; i < n; i++)
             {
                 var x = px[i];
                 var y = py[i];
-                var distSq = x * x + y * y + 0.01f;
-                var dist = MathF.Sqrt(distSq);
-
-                var force = kG * dist * (degrees[i] + 1);
-                fx[i] -= (x / dist) * force;
-                fy[i] -= (y / dist) * force;
+                var invDist = 1f / MathF.Sqrt(x * x + y * y + 0.01f);
+                var force = kG * (1f / invDist) * (degrees[i] + 1);
+                fx[i] -= x * invDist * force;
+                fy[i] -= y * invDist * force;
             }
 
-            // Update positions
-            float totalVelocity = 0;
-            for (var i = 0; i < nodes.Count; i++)
+            // Integration
+            float totalVelSq = 0;
+            for (var i = 0; i < n; i++)
             {
                 if (i == rootIndex && !hasForeground) continue;
-
                 vx[i] = (vx[i] + fx[i] * timeStep) * damping;
                 vy[i] = (vy[i] + fy[i] * timeStep) * damping;
-                var mag2 = vx[i] * vx[i] + vy[i] * vy[i];
-               
-                totalVelocity +=  MathF.Sqrt(mag2);
+                totalVelSq += vx[i] * vx[i] + vy[i] * vy[i];
                 px[i] += vx[i] * timeStep;
                 py[i] += vy[i] * timeStep;
             }
 
-            if (totalVelocity < 0.005f * nodes.Count) break;
+            if (totalVelSq < 0.000025f * n) break;
         }
 
-        for (var i = 0; i < nodes.Count; i++)
+        for (var i = 0; i < n; i++)
         {
             _positions[nodes[i]] = new Point { X = px[i], Y = py[i] };
             _velocities[nodes[i]] = new Point { X = vx[i], Y = vy[i] };
