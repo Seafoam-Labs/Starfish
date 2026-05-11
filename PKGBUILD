@@ -41,12 +41,12 @@ package() {
 Name=Starfish
 Comment=Arch Depdency Viewer
 Exec=/usr/bin/starfish
-Icon=starfishlogo
+Icon=starfish
 Type=Application
 Categories=System;Utility;
 Terminal=false
 EOF
 
   # Install icon
-  install -Dm644 Starfish/Assets/starfish.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/starfishlogo.png"
+  install -Dm644 Starfish/Assets/starfish.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/starfish.png"
 }

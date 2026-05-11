@@ -34,9 +34,5 @@
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="Assets\style.css" />
-        <Content Include="Assets\starfish.png">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </Content>
     </ItemGroup>
-
 </Project>

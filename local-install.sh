@@ -50,12 +50,12 @@ cp -r "$SCRIPT_DIR/publish/starfish/"* "$INSTALL_DIR/"
 
 # Create symlinks in /usr/bin so commands are available on PATH
 echo "Creating symlinks in /usr/bin..."
-ln -sf "$INSTALL_DIR/starfish" /usr/bin/starfish
+ln -sf "$INSTALL_DIR/starfish-ui" /usr/bin/starfish
 
 # Install icon to standard location
 echo "Installing icon to standard location..."
 mkdir -p /usr/share/icons/hicolor/256x256/apps
-cp "$INSTALL_DIR/starfishlogo.png" /usr/share/icons/hicolor/256x256/apps/starfish.png
+cp "$SCRIPT_DIR/Starfish/Assets/starfish.png" /usr/share/icons/hicolor/256x256/apps/starfish.png
 
 # Create desktop entry
 echo "Creating desktop entry"
@@ -63,7 +63,7 @@ cat <<EOF > /usr/share/applications/starfish.desktop
 [Desktop Entry]
 Name=starfish
 Comment=A Modern Arch Package Manager
-Exec=/usr/bin/starfish-ui
+Exec=/usr/bin/starfish
 Icon=starfish
 Type=Application
 Categories=System;Utility;
