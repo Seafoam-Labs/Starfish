@@ -1,7 +1,7 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=starfish
-pkgver=0.0.3
+pkgver=0.0.4
 pkgrel=1
 pkgdesc="Starfish: Arch Depdency Viewer"
 arch=('x86_64')
@@ -26,6 +26,7 @@ sha256sums=('8b3acc13a4fc7315a3a694126da25635f173fff2e880c905759261c8afda01c3')
 build() {
   cd "$srcdir/Starfish-${pkgver}"
 
+  # Build the main executable
   dotnet publish Starfish/Starfish.csproj -c Release -r linux-x64 -o out --nologo -p:InstructionSet=${INSTRUCTIONS:=x86-64}
 }
 

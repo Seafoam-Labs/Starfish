@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+        <InvariantGlobalization>true</InvariantGlobalization>
+
+        <!-- NativeAOT shared library output -->
+        <PublishAot>true</PublishAot>
+        <NativeLib>Shared</NativeLib>
+        <StripSymbols>true</StripSymbols>
+        <TrimMode>full</TrimMode>
+    </PropertyGroup>
+    <PropertyGroup>
+        <Version>0.0.3</Version>
+        <AssemblyName>Starfish.GraphWidget</AssemblyName>
+        <AssemblyVersion>0.0.3</AssemblyVersion>
+        <AssemblyTitle>Starfish Graph Widget Library</AssemblyTitle>
+        <Description>Starfish graph visualization widget as a shared library</Description>
+        <Company>Seafoam Labs</Company>
+        <Copyright>2026 Seafoam Labs</Copyright>
+    </PropertyGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="UiFiles\**\*.ui" />
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.0-preview.1" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.2.26159.112" />
+        <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+    </ItemGroup>
+</Project>
