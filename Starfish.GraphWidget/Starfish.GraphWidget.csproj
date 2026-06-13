@@ -25,6 +25,34 @@
     <ItemGroup>
         <EmbeddedResource Include="UiFiles\**\*.ui" />
     </ItemGroup>
+    <!-- Map GirCore P/Invoke library names to real system libraries for NativeAOT.
+         DirectPInvoke makes the AOT compiler emit direct calls resolved by the OS loader.
+         LinkerArg provides the actual -l flags so the linker can find the libraries. -->
+    <ItemGroup>
+        <DirectPInvoke Include="Gtk" />
+        <DirectPInvoke Include="Gdk" />
+        <DirectPInvoke Include="Gsk" />
+        <DirectPInvoke Include="GObject" />
+        <DirectPInvoke Include="GLib" />
+        <DirectPInvoke Include="Gio" />
+        <DirectPInvoke Include="Graphene" />
+        <DirectPInvoke Include="GdkPixbuf" />
+        <DirectPInvoke Include="Pango" />
+        <DirectPInvoke Include="cairo-graphics" />
+        <DirectPInvoke Include="cairo" />
+    </ItemGroup>
+    <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+        <LinkerArg Include="-lgtk-4" />
+        <LinkerArg Include="-lgobject-2.0" />
+        <LinkerArg Include="-lglib-2.0" />
+        <LinkerArg Include="-lgio-2.0" />
+        <LinkerArg Include="-lgraphene-1.0" />
+        <LinkerArg Include="-lgdk_pixbuf-2.0" />
+        <LinkerArg Include="-lpango-1.0" />
+        <LinkerArg Include="-lcairo" />
+        <LinkerArg Include="-lcairo-gobject" />
+        <!-- 'cairo' DllImport name maps to libcairo-gobject.so.2 for cairo_gobject_* symbols -->
+    </ItemGroup>
     <ItemGroup>
         <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.0-preview.1" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.2.26159.112" />
