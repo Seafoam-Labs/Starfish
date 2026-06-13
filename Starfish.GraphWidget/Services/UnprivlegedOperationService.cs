@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Starfish.GraphWidget;
 using Starfish.Models;
 
 namespace Starfish.Services;
@@ -61,13 +62,13 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
                 if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
                 {
                     var updates = System.Text.Json.JsonSerializer.Deserialize(trimmedLine,
-                        SeahorseGtkContext.Default.ListAlpmPackageDto);
+                        StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
                     return updates ?? [];
                 }
             }
 
             var allUpdates = System.Text.Json.JsonSerializer.Deserialize(StripBom(result.Output.Trim()),
-                SeahorseGtkContext.Default.ListAlpmPackageDto);
+                StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
             return allUpdates ?? [];
         }
         catch (Exception ex)
@@ -95,13 +96,13 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
                 if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
                 {
                     var updates = System.Text.Json.JsonSerializer.Deserialize(trimmedLine,
-                        SeahorseGtkContext.Default.ListAlpmPackageDto);
+                        StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
                     return updates ?? [];
                 }
             }
 
             var allUpdates = System.Text.Json.JsonSerializer.Deserialize(StripBom(result.Output.Trim()),
-                SeahorseGtkContext.Default.ListAlpmPackageDto);
+                StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
             return allUpdates ?? [];
         }
         catch (Exception ex)

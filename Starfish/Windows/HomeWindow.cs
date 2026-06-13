@@ -1,19 +1,17 @@
 using Gtk;
+using Starfish.GraphWidget;
 
 namespace Starfish.Windows;
 
-public class HomeWindow(WebWindow webWindow)
+public class HomeWindow(IServiceProvider serviceProvider)
 {
     public Widget CreateWindow()
     {
        var box = Box.New(Orientation.Vertical, 0);
      
-       var webWidget = webWindow.CreateWindow();
-       webWidget.SetVexpand(true);
-       box.Append(webWidget);
+       var graphWidget = GraphWidgetFactory.CreateGraphWidget(serviceProvider, "shelly", 3);
+       box.Append(graphWidget);
        
-       Task.Run(async () => await webWindow.InitializeAsync("shelly", 3));
-
        return box;
     }
 }
