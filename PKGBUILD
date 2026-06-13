@@ -28,9 +28,6 @@ build() {
 
   # Build the main executable
   dotnet publish Starfish/Starfish.csproj -c Release -r linux-x64 -o out --nologo -p:InstructionSet=${INSTRUCTIONS:=x86-64}
-
-  # Build the shared library (.so) for other applications
-  dotnet publish Starfish.GraphWidget/Starfish.GraphWidget.csproj -c Release -r linux-x64 -o out-widget --nologo -p:InstructionSet=${INSTRUCTIONS:=x86-64}
 }
 
 package() {
@@ -38,9 +35,6 @@ package() {
 
   # Install starfish-ui binary
   install -Dm755 out/starfish-ui "$pkgdir/usr/bin/starfish"
-
-  # Install the shared library
-  install -Dm755 out-widget/Starfish.GraphWidget.so "$pkgdir/usr/lib/libStarfish.GraphWidget.so"
 
   # Install desktop entry
   cat <<'EOF' | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/com.seafoamlabs.starfish.desktop"
