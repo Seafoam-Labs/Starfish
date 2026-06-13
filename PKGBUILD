@@ -1,7 +1,7 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=starfish
-pkgver=0.0.4
+pkgver=0.0.5
 pkgrel=1
 pkgdesc="Starfish: Arch Depdency Viewer"
 arch=('x86_64')

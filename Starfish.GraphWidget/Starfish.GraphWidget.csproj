@@ -14,9 +14,9 @@
         <TrimMode>full</TrimMode>
     </PropertyGroup>
     <PropertyGroup>
-        <Version>0.0.3</Version>
+        <Version>0.0.5</Version>
         <AssemblyName>Starfish.GraphWidget</AssemblyName>
-        <AssemblyVersion>0.0.3</AssemblyVersion>
+        <AssemblyVersion>0.0.5</AssemblyVersion>
         <AssemblyTitle>Starfish Graph Widget Library</AssemblyTitle>
         <Description>Starfish graph visualization widget as a shared library</Description>
         <Company>Seafoam Labs</Company>

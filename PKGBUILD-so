@@ -2,7 +2,7 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgbase=lib-starfish
 pkgname=lib-starfish
-pkgver=0.0.4
+pkgver=0.0.5
 pkgrel=1
 pkgdesc="Starfish graph visualization shared library"
 arch=('x86_64')
