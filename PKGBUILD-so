@@ -1,5 +1,6 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
+pkgbase=lib-starfish
 pkgname=lib-starfish
 pkgver=0.0.4
 pkgrel=1
@@ -18,8 +19,6 @@ makedepends=('dotnet-sdk-10.0' 'clang')
 
 # Source tarball from GitHub release
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Seafoam-Labs/Starfish/archive/v${pkgver}.tar.gz")
-
-sha256sums=('SKIP')
 
 build() {
   cd "$srcdir/Starfish-${pkgver}"

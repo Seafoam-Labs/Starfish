@@ -21,8 +21,6 @@ makedepends=('dotnet-sdk-10.0' 'clang')
 # Source tarball from GitHub release
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Seafoam-Labs/Starfish/archive/v${pkgver}.tar.gz")
 
-sha256sums=('8b3acc13a4fc7315a3a694126da25635f173fff2e880c905759261c8afda01c3')
-
 build() {
   cd "$srcdir/Starfish-${pkgver}"
 
