@@ -46,7 +46,7 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
 
     public async Task<List<AlpmPackageDto>> GetAllPackagesAsync()
     {
-        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "list-available --json");
+        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "query", "--available", "--json");
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
         {
@@ -80,7 +80,7 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
     
     public async Task<List<AlpmPackageDto>> GetAllInstalledPackagesAsync()
     {
-        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "list-installed -j");
+        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "query", "--installed", "--json");
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
         {
