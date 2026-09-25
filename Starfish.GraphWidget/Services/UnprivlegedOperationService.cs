@@ -25,6 +25,7 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
             debugPath,
 #endif
             "/usr/bin/shelly",
+            "/usr/sbin/shelly",
             "/usr/local/bin/shelly",
             Path.Combine(AppContext.BaseDirectory, "shelly"),
             Path.Combine(AppContext.BaseDirectory, "Shelly"),
@@ -46,62 +47,142 @@ public class UnprivilegedOperationService : IUnprivilegedOperationService
 
     public async Task<List<AlpmPackageDto>> GetAllPackagesAsync()
     {
-        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "query", "--available", "--json");
+        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "search", "standard", "--available", "--ui-mode");
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
         {
             return [];
         }
 
-        try
-        {
-            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
-            {
-                var trimmedLine = StripBom(line.Trim());
-                if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
-                {
-                    var updates = System.Text.Json.JsonSerializer.Deserialize(trimmedLine,
-                        StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
-                    return updates ?? [];
-                }
-            }
-
-            var allUpdates = System.Text.Json.JsonSerializer.Deserialize(StripBom(result.Output.Trim()),
-                StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
-            return allUpdates ?? [];
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to parse updates JSON: {ex.Message}");
-            return [];
-        }
+        return ParsePackagesOutput(result.Output);
     }
     
     public async Task<List<AlpmPackageDto>> GetAllInstalledPackagesAsync()
     {
-        var result = await ExecuteUnprivilegedCommandAsync("List all packages", "query", "--installed", "--json");
+        var result = await ExecuteUnprivilegedCommandAsync("List installed packages", "list", "standard", "--required-by", "--optional-for", "--ui-mode");
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
         {
             return [];
         }
 
+        return ParsePackagesOutput(result.Output);
+    }
+
+    private static List<AlpmPackageDto> ParsePackagesOutput(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return [];
+        }
+
+        var trimmed = StripBom(output.Trim());
+
+      
+        const string startTag = "[JSON]";
+        const string endTag = "[/JSON]";
+        var startIndex = trimmed.IndexOf(startTag, StringComparison.Ordinal);
+        if (startIndex >= 0)
+        {
+            startIndex += startTag.Length;
+            var endIndex = trimmed.IndexOf(endTag, startIndex, StringComparison.Ordinal);
+            if (endIndex >= 0)
+            {
+                try
+                {
+                    var base64Content = trimmed.Substring(startIndex, endIndex - startIndex).Trim();
+                    var bytes = Convert.FromBase64String(base64Content);
+                    var jsonString = Encoding.UTF8.GetString(bytes);
+                    var decodedPackages = System.Text.Json.JsonSerializer.Deserialize(
+                        StripBom(jsonString.Trim()),
+                        StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
+                    if (decodedPackages != null)
+                    {
+                        return decodedPackages;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to parse [JSON] base64 payload: {ex.Message}");
+                }
+            }
+        }
+
+      
         try
         {
-            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
+            var bytes = Convert.FromBase64String(trimmed);
+            var jsonString = Encoding.UTF8.GetString(bytes);
+            var decodedPackages = System.Text.Json.JsonSerializer.Deserialize(
+                StripBom(jsonString.Trim()),
+                StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
+            if (decodedPackages != null)
             {
-                var trimmedLine = StripBom(line.Trim());
-                if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
+                return decodedPackages;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+
+
+        var lines = trimmed.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = StripBom(line.Trim());
+            if (string.IsNullOrEmpty(trimmedLine))
+                continue;
+
+            // Check if line contains [JSON] tags
+            var lineStartIndex = trimmedLine.IndexOf(startTag, StringComparison.Ordinal);
+            if (lineStartIndex >= 0)
+            {
+                lineStartIndex += startTag.Length;
+                var lineEndIndex = trimmedLine.IndexOf(endTag, lineStartIndex, StringComparison.Ordinal);
+                if (lineEndIndex >= 0)
                 {
-                    var updates = System.Text.Json.JsonSerializer.Deserialize(trimmedLine,
-                        StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
-                    return updates ?? [];
+                    trimmedLine = trimmedLine.Substring(lineStartIndex, lineEndIndex - lineStartIndex).Trim();
                 }
             }
 
-            var allUpdates = System.Text.Json.JsonSerializer.Deserialize(StripBom(result.Output.Trim()),
+            try
+            {
+                var bytes = Convert.FromBase64String(trimmedLine);
+                var jsonString = Encoding.UTF8.GetString(bytes);
+                var decodedPackages = System.Text.Json.JsonSerializer.Deserialize(
+                    StripBom(jsonString.Trim()),
+                    StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
+                if (decodedPackages != null)
+                {
+                    return decodedPackages;
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+
+            if (!trimmedLine.StartsWith("[") || !trimmedLine.EndsWith("]")) continue;
+            try
+            {
+                var updates = System.Text.Json.JsonSerializer.Deserialize(trimmedLine,
+                    StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
+                if (updates != null)
+                {
+                    return updates;
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+       
+        try
+        {
+            var allUpdates = System.Text.Json.JsonSerializer.Deserialize(trimmed,
                 StarfishGraphWidgetJsonContext.Default.ListAlpmPackageDto);
             return allUpdates ?? [];
         }
