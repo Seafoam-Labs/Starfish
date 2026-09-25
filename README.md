@@ -34,9 +34,6 @@ git clone https://github.com/Seafoam-Labs/Starfish.git
 cd Starfish
 shelly build
 ```
-
-This script will build the project, install it to `/opt/starfish`, create a symlink in `/usr/bin/starfish`, and add a desktop entry to your application menu.
-
 ---
 
 Developed by [Seafoam Labs](https://github.com/seafoamlabs)

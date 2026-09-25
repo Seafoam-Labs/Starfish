@@ -2,7 +2,7 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgbase=starfish
 pkgname=(starfish libstarfish)
-pkgver=0.0.6
+pkgver=0.0.8
 pkgrel=2
 pkgdesc="Starfish: Arch Depdency Viewer"
 arch=('x86_64')
