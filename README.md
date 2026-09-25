@@ -30,9 +30,9 @@ Starfish is available in the Arch User Repository (AUR). You can install it usin
 If you are a developer or want to build Starfish from source, you can use the provided installation script:
 
 ```bash
-git clone https://github.com/seafoamlabs/Starfish.git
+git clone https://github.com/Seafoam-Labs/Starfish.git
 cd Starfish
-sudo ./local-install.sh
+shelly build
 ```
 
 This script will build the project, install it to `/opt/starfish`, create a symlink in `/usr/bin/starfish`, and add a desktop entry to your application menu.
